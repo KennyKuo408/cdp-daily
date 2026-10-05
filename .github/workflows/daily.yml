@@ -2,7 +2,7 @@ name: Daily CDP Download
 
 on:
   schedule:
-    - cron: "56 6 * * *"    # 每天台北 08:30（GitHub 用 UTC，所以寫 00:30）
+    - cron: "12 7 * * *"    # 每天台北 08:30（GitHub 用 UTC，所以寫 00:30）
   workflow_dispatch:         # 允許在 Actions 頁面手動按按鈕執行（測試用）
 
 jobs:
