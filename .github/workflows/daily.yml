@@ -1,0 +1,74 @@
+name: Daily CDP Download
+
+on:
+  schedule:
+    - cron: "30 0 * * *"    # 每天台北 08:30（GitHub 用 UTC，所以寫 00:30）
+  workflow_dispatch:         # 允許在 Actions 頁面手動按按鈕執行（測試用）
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Taipei                              # 讓 Python 的日期用台北時間計算
+      OUTPUT_DIR: ${{ github.workspace }}/output   # 程式產出的 xlsx 放這裡
+
+    steps:
+      - name: 取得 repo 裡的程式碼
+        uses: actions/checkout@v4
+
+      - name: 安裝 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 執行下載與分析
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          mkdir -p "$OUTPUT_DIR"
+          python download_cdp.py
+          echo "產出的檔案："
+          ls -l "$OUTPUT_DIR"
+
+      - name: 備份一份到 GitHub（OneDrive 上傳失敗時可以從這裡下載）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-${{ github.run_id }}
+          path: output/*.xlsx
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: 上傳到 OneDrive
+        env:
+          ONEDRIVE_TOKEN: ${{ secrets.ONEDRIVE_TOKEN }}
+          ONEDRIVE_FOLDER: CDP/daily
+        run: |
+          shopt -s nullglob
+          files=("$OUTPUT_DIR"/*.xlsx)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::output 資料夾裡找不到 xlsx 檔"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            name=$(basename "$f")
+            echo "上傳 $name 到 OneDrive/$ONEDRIVE_FOLDER ..."
+            code=$(curl -sS -o resp.json -w "%{http_code}" -X PUT \
+              -H "Authorization: Bearer $ONEDRIVE_TOKEN" \
+              -H "Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+              --data-binary @"$f" \
+              "https://graph.microsoft.com/v1.0/me/drive/root:/$ONEDRIVE_FOLDER/$name:/content")
+            if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+              echo "::error::上傳失敗，HTTP $code（401 通常代表 token 過期，請更新 ONEDRIVE_TOKEN）"
+              cat resp.json
+              exit 1
+            fi
+            echo "上傳成功（HTTP $code）"
+          done
