@@ -1,0 +1,8 @@
+# 不要把資料檔、輸出和任何憑證放進 GitHub
+output/
+*.xlsx
+*.csv
+*.pem
+.env
+__pycache__/
+.DS_Store
