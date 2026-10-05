@@ -11,8 +11,8 @@
      (不會另外產生一份原始單分頁檔案,分析結果直接用這個檔名蓋掉)
 
 環境變數(跟 fetch_daily_data.py 一樣):
-    DATABRICKS_HOST      例如 adb-2289414555416422.2.azuredatabricks.net
-    DATABRICKS_HTTP_PATH 例如 /sql/1.0/warehouses/1322922dde4276d3
+    DATABRICKS_HOST      例如 adb-xxxxxxxxxxxx.x.azuredatabricks.net
+    DATABRICKS_HTTP_PATH 例如 /sql/1.0/warehouses/xxxxxxxxxxxx
     DATABRICKS_TOKEN     你的 Personal Access Token(DBeaver Password 欄位那組,不是 Username)
 
 用法:
@@ -36,15 +36,13 @@ import argparse
 from datetime import datetime, timedelta
 
 
-# ---------- SSL: 公司網路有 SSL 攔截,Python 需要用合併過公司根證書的信任清單 ----------
-# 這裡直接指定路徑,不依賴任何 shell 的 export 設定,不管從哪個 Terminal、
-# 哪個 shell、之後排程執行,都一定套用得到。
-# 如果這個檔案不存在,代表還沒照之前步驟做,連線時會照樣出現 SSL 憑證錯誤。
+# ---------- SSL: 公司網路有 SSL 攔截,在公司 Mac 上需要用合併過公司根證書的信任清單 ----------
+# 只有在 Mac 上找得到這份檔案時才套用。GitHub Actions 的機器不經過公司代理,不需要也沒有這個檔案。
 _CA_BUNDLE = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP/combined-ca-bundle.pem")
 if os.path.exists(_CA_BUNDLE):
     os.environ.setdefault("SSL_CERT_FILE", _CA_BUNDLE)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", _CA_BUNDLE)
-else:
+elif not os.environ.get("GITHUB_ACTIONS"):
     print(f"[提醒] 找不到 {_CA_BUNDLE},如果之後出現 SSL CERTIFICATE_VERIFY_FAILED 錯誤,"
           f"代表需要先重新建立這份合併憑證檔案。")
 
@@ -69,7 +67,7 @@ TABLES = {
 # 要查的 (site, model, teststage) 組合清單。要加/減組合,只要改這裡,不用動其他程式碼。
 # site 要對應 TABLES 裡的 key("WYMY" / "WYMTN")。不是每個 model/teststage 都兩邊都有,
 # 用三元素就能只列出某個 site 真的有在跑的組合,不會多查到另一邊去。
-# 跑一次 main() 會把下面每一組都查一遍,全部結果一起進同一份彙總表、一起寄出。
+# 跑一次 main() 會把下面每一組都查一遍,全部結果一起進同一份彙總表。
 JOBS = [
     #LoB1
     ("WYMTN", "YV4", "MB"),("WYMTN", "NL", "MB"),("WYMTN", "GC", "ServerBoard"),
@@ -96,7 +94,7 @@ GEN_TYPE_LOOKUP = {
     # 例如: "B91.10H1": ("GEN4", "T1C"),
     # WMMTN
     "B91.10H10.0019":("GEN5","T1M"),
-    "B91.10H10.0019":("GEN5","T1C"), "B91.10H10.0019":("GEN5","T1C"), "B91.10H10.0051":("GEN5","T1C"),
+    "B91.10H10.001C":("GEN5","T1C"), "B91.10H10.0051":("GEN5","T1C"),
     "B91.10H10.0017":("GEN4","T1M"), "B91.10H10.0018":("GEN4","T1M"), "B91.10H10.003K":("GEN4","T1M"), "B91.10H10.003T":("GEN4","T1M"),
     "B91.10H10.0055":("GEN4","T1C"), "B91.10H10.0058":("GEN4","T1C"), "B91.10H10.005A":("GEN4","T1C"), "B91.10H10.0059":("GEN4","T1C"), "B91.10H10.001B":("GEN4","T1C"), "B91.10H10.001A":("GEN4","T1C"),
     #WYMY
@@ -165,8 +163,10 @@ def classify_board(site, model, teststage, upn, fixture_id):
 
 # ---------- 輸出路徑(OneDrive 同步資料夾,不是本機 Desktop) ----------
  
+# 有設定環境變數 OUTPUT_DIR(GitHub Actions 上會設)就存到那裡,
+# 沒設定(在 Mac 上直接跑)就照舊存到 OneDrive 同步資料夾。
 ONEDRIVE_CDP_DIR = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP")
-ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "daily")
+ONEDRIVE_DAILY_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(ONEDRIVE_CDP_DIR, "daily")
  
 
 # ---------- 連線 / 抓資料 ----------
@@ -241,8 +241,6 @@ def parse_args():
                          help="只查單一 testStage(搭配 --model 一起用)。不指定的話,改成跑 JOBS 清單裡全部組合")
     parser.add_argument("--site", type=str, default=None, choices=list(TABLES.keys()),
                          help="搭配 --model/--teststage 時,只查這一個 site;不給的話兩個 site 都查")
-    parser.add_argument("--recipient", type=str, default="Kenny_Kuo@wiwynn.com",
-                        help="收件人 email (預設 Will_Fang@wiwynn.com,測試時可用 --recipient 覆蓋)")
     return parser.parse_args()
 
 
@@ -753,99 +751,6 @@ def main():
     print(f"產生彙總表 -> {summary_path}")
     build_summary(results, summary_path)
     print(f"已存成: {summary_path}")
-"""
-    html_table = render_xlsx_as_html_table(summary_path)
-    print(f"寄信給 {args.recipient} ...")
-    ok = send_email("Daily LoB1 FPY", html_table, args.recipient)
-    print("寄信成功" if ok else "寄信失敗,請檢查 ~/.email_credentials 或錯誤訊息")
-  
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-
-EMAIL_CREDENTIALS_FILE = os.path.expanduser("~/.email_credentials")
-"""
- 
-def load_email_credentials():
-    """跟 Databricks 憑證檔案同一套邏輯:讀 ~/.email_credentials,不依賴 shell 環境變數。"""
-    if not os.path.exists(EMAIL_CREDENTIALS_FILE):
-        return {}
-    values = {}
-    with open(EMAIL_CREDENTIALS_FILE, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, val = line.partition("=")
-            values[key.strip()] = val.strip().strip('"').strip("'")
-    return values
- 
- 
-def render_xlsx_as_html_table(xlsx_path, sheet_name=None):
-    """把 xlsx 的某個分頁轉成 HTML 表格字串,直接貼進信件內文用。
-    百分比格式的格子會自動印成 12.34% 這種樣式(讀 cell.number_format 判斷)。"""
-    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
-    ws = wb[sheet_name] if sheet_name else wb.active
- 
-    rows_html = []
-    for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row), start=1):
-        cells_html = []
-        for cell in row:
-            val = cell.value
-            if val is None:
-                text = ""
-            elif isinstance(val, (int, float)) and cell.number_format and "%" in cell.number_format:
-                text = f"{val * 100:.2f}%"
-            elif isinstance(val, float):
-                text = f"{val:.2f}"
-            else:
-                text = str(val)
- 
-            if r_idx == 1:
-                cells_html.append(
-                    f'<th style="background:#4472C4;color:#fff;padding:6px 10px;'
-                    f'border:1px solid #ccc;font-family:Arial,sans-serif;font-size:13px;">{text}</th>'
-                )
-            else:
-                cells_html.append(
-                    f'<td style="padding:6px 10px;border:1px solid #ccc;text-align:center;'
-                    f'font-family:Arial,sans-serif;font-size:13px;">{text}</td>'
-                )
-        rows_html.append("<tr>" + "".join(cells_html) + "</tr>")
- 
-    return (
-        '<table style="border-collapse:collapse;">' + "".join(rows_html) + "</table>"
-    )
- 
- 
-def send_email(subject, html_body, recipient):
-    """用 SMTP 直接寄信,不依賴任何郵件 App 有沒有開著,排程背景執行也一定寄得出去。"""
-    creds = load_email_credentials()
-    sender = creds.get("EMAIL_ADDRESS")
-    password = creds.get("EMAIL_PASSWORD")
-    smtp_server = creds.get("SMTP_SERVER", "smtp.office365.com")
-    smtp_port = int(creds.get("SMTP_PORT", "587"))
- 
-    if not sender or not password:
-        print(f"缺少寄信帳密,請先建立 {EMAIL_CREDENTIALS_FILE}")
-        return False
- 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["To"] = recipient
-    msg.attach(MIMEText(html_body, "html"))
- 
-    try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(sender, password)
-            server.sendmail(sender, [recipient], msg.as_string())
-        return True
-    except Exception as e:
-        print(f"寄信失敗: {e}")
-        return False
-
 
 
 if __name__ == "__main__":
