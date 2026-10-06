@@ -4,10 +4,14 @@ on:
   schedule:
     - cron: "47 0 * * *"    # 每天台北 15:12（GitHub 用 UTC，台北時間減 8 小時）
   workflow_dispatch:         # 允許在 Actions 頁面手動按按鈕執行（測試用）
-
+  
 permissions:
   contents: write            # 允許 workflow 把報表 commit 回 repo
-
+ 
+concurrency:
+  group: daily-cdp           # 同一時間只跑一個，避免兩次執行互相搶著 push
+  cancel-in-progress: false
+ 
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -15,20 +19,20 @@ jobs:
     env:
       TZ: Asia/Taipei
       OUTPUT_DIR: ${{ github.workspace }}/output
-
+ 
     steps:
       - name: 取得 repo 裡的程式碼
         uses: actions/checkout@v4
-
+ 
       - name: 安裝 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-
+ 
       - name: 安裝套件
         run: pip install -r requirements.txt
-
+ 
       - name: 執行下載與分析
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -39,7 +43,7 @@ jobs:
           python download_cdp.py
           echo "產出的檔案："
           ls -l "$OUTPUT_DIR"
-
+ 
       - name: 整理報表到 reports/日期/，並把彙總表另存成 CSV（方便 Claude 讀取）
         run: |
           shopt -s nullglob
@@ -53,7 +57,7 @@ jobs:
           mkdir -p "$dest"
           cp "$OUTPUT_DIR"/*.xlsx "$dest"/
           echo "REPORT_TAG=$tag" >> "$GITHUB_ENV"
-
+ 
           python - "$dest/$tag.xlsx" "$dest/summary.csv" << 'PY'
           import sys
           import pandas as pd
@@ -68,10 +72,10 @@ jobs:
           df.to_csv(dst, index=False, encoding="utf-8-sig")
           print(f"已產生 {dst}，共 {len(df)} 列")
           PY
-
+ 
           echo "本次存進 repo 的檔案："
           ls -l "$dest"
-
+ 
       - name: Commit 回 GitHub
         run: |
           git config user.name "github-actions[bot]"
@@ -82,4 +86,12 @@ jobs:
             exit 0
           fi
           git commit -m "Daily report $REPORT_TAG"
-          git push
+ 
+          # 執行期間如果 repo 有新的 commit（例如你在網頁上改了檔案），先合併再 push，最多重試 3 次
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            echo "push 失敗，第 $i 次重試..."
+            sleep 5
+          done
+          echo "::error::重試 3 次仍無法 push"
+          exit 1
