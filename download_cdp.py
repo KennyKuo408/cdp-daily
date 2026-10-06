@@ -225,7 +225,7 @@ def get_connection_params():
 
 def compute_default_window():
     now = datetime.now()
-    today_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
+    today_8am = now.replace(hour=7, minute=0, second=0, microsecond=0)
     end = today_8am if now >= today_8am else today_8am - timedelta(days=1)
     start = end - timedelta(days=1)
     return start, end
