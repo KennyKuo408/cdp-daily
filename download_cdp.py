@@ -61,13 +61,13 @@ from openpyxl.utils import get_column_letter
 TABLES = {
     "WYMY": "dw_manufacturing.viw_tpspcbainfo_wymy",
     "WYMTN": "dw_manufacturing.viw_tpspcbainfo_wymtn",
-    "WMX": "dw_manufacturing.viw_tpspcbainfo_wmx"
+    "WYX": "dw_manufacturing.viw_tpspcbainfo_wmx"
 }
 
-# 要查的 (site, model, teststage) 組合清單。要加/減組合,只要改這裡,不用動其他程式碼。
-# site 要對應 TABLES 裡的 key("WYMY" / "WYMTN")。不是每個 model/teststage 都兩邊都有,
+# 要查的 (site, model, testStage) 組合清單。要加/減組合,只要改這裡,不用動其他程式碼。
+# site 要對應 TABLES 裡的 key("WYMY" / "WYMTN")。不是每個 model/testStage 都兩邊都有,
 # 用三元素就能只列出某個 site 真的有在跑的組合,不會多查到另一邊去。
-# 跑一次 main() 會把下面每一組都查一遍,全部結果一起進同一份彙總表。
+# 跑一次 main() 會把下面每一組都查一遍,全部結果一起進同一份彙總表、一起寄出。
 JOBS = [
     #LoB1
     ("WYMTN", "YV4", "MB"),("WYMTN", "NL", "MB"),("WYMTN", "GC", "ServerBoard"),
@@ -76,12 +76,21 @@ JOBS = [
     #LoB2
     ("WYMTN", "C41A8", "MB"),("WYMTN", "C219B", "MB"),
     ("WYMY", "C41A8", "MB"),("WYMY", "M1120", "SCM"),("WYMY", "C219B", "MB"),
-    ("WMX", "M1120", "SCM"), ("WMX", "C219B", "MB"),
-    
-    
-    
-    
-    
+    ("WYX", "M1120", "SCM"), ("WYX", "C219B", "MB"),
+
+    #LoB 3
+    ("WYMTN", "NANAKA", "MB"),("WYMTN", "NANAKA", "PDB"),("WYMTN", "GOSHIN11", "FBP"),("WYMTN", "GOSHIN11", "RBP"),("WYMTN", "GOSHIN11", "ITPS"),
+    ("WYMTN", "TETON2", "HN_IOBD"),("WYMTN", "TETON2", "HN_RISER0"),("WYMTN", "TETON2PDS", "FPB"),("WYMTN", "TETON2PDS", "SWB"),
+    ("WYMTN", "TETON3", "JBOG_RISER"),("WYMTN", "TETON3PDS", "SWB"),
+    ("WYMY", "NANAKA", "MB"),("WYMY", "NANAKA", "PDB"),("WYMY", "GOSHIN11", "FBP"),("WYMY", "GOSHIN11", "RBP"),("WYMY", "GOSHIN11", "ITPS"),
+    ("WYMY", "TETON2", "HN_IOBD"),("WYMY", "TETON2", "HN_RISER0"),("WYMY", "TETON2PDS", "FPB"),("WYMY", "TETON2PDS", "SWB"),
+    ("WYMY", "TETON3", "JBOG_RISER")
+
+]
+
+STAGE_OVERRIDE_JOBS = [
+    ("WYMTN", "GOSHIN11", "RBP", "TE", "E-Load"),
+    ("WYMY", "GOSHIN11", "RBP", "TE", "E-Load"),
 ]
 
 BLANK_COLS = ["plant", "customer", "usn", "childusn", "stage"]
@@ -244,13 +253,14 @@ def parse_args():
     return parser.parse_args()
 
 
-def fetch_table(connection, table_name, model, teststage, start_str, end_str):
+def fetch_table(connection, table_name, model, testStage, start_str, end_str, stages=("TD", "PI")):
+    stage_list_sql = ",".join(f"'{s}'" for s in stages)
     query = f"""
         SELECT *
         FROM {table_name}
-        WHERE model = %(model)s
-            AND testStage = %(teststage)s
-            AND stage IN ('TD')
+        WHERE UPPER(model) LIKE %(model)s
+            AND UPPER(testStage) LIKE %(testStage)s
+            AND stage IN ({stage_list_sql})
             AND UPPER(fixtureId) NOT LIKE '%DOA%'
             AND startTime >= %(start)s
             AND startTime < %(end)s
@@ -258,11 +268,12 @@ def fetch_table(connection, table_name, model, teststage, start_str, end_str):
     """
     cursor = connection.cursor()
     cursor.execute(query, {
-        "model": model,
-        "teststage": teststage,
+        "model": f"%{model.upper()}%",
+        "testStage": testＳtage,
         "start": start_str,
         "end": end_str,
     })
+    
     columns = [desc[0] for desc in cursor.description]
     rows = cursor.fetchall()
     return pd.DataFrame(rows, columns=columns)
@@ -744,6 +755,26 @@ def main():
                 metrics = run_fpy_analysis(group_df.copy(), out_path)
                 results[(site, model, board)] = metrics
                 print(f"  已存成: {out_path}")
+
+        # 處理stage override的特例報告(例如GOSHIN11 E-Load)，跟原本JOBS清單的處理完全分開，
+        # 不影響原本RBP(stage='TD')那份報告。
+        for site, model, teststage, override_stage, board_label in STAGE_OVERRIDE_JOBS:
+            table_name = TABLES[site]
+            print(f"=== site={site} model={model} teststage={teststage} stage={override_stage} -> board={board_label} ===")
+            df = fetch_table(connection, table_name, model, teststage, start_str, end_str,
+                            stages=(override_stage,))
+            print(f"  取得 {len(df)} 筆資料")
+
+            if df.empty:
+                print(f"  沒有資料,跳過")
+                continue
+
+            out_path = f"{ONEDRIVE_DAILY_DIR}/{site}_{date_tag}_{model}_{board_label}.xlsx"
+            print(f"  跑 FPY 分析 -> {out_path}")
+            metrics = run_fpy_analysis(df.copy(), out_path, model, teststage)
+            results[(site, model, board_label)] = metrics
+            print(f"  已存成: {out_path}")
+  
     finally:
         connection.close()
 
