@@ -84,7 +84,7 @@ JOBS = [
     ("WYMTN", "TETON3", "JBOG_RISER"),("WYMTN", "TETON3PDS", "SWB"),
     ("WYMY", "NANAKA", "MB"),("WYMY", "NANAKA", "PDB"),("WYMY", "GOSHIN11", "FBP"),("WYMY", "GOSHIN11", "RBP"),("WYMY", "GOSHIN11", "ITPS"),
     ("WYMY", "TETON2", "HN_IOBD"),("WYMY", "TETON2", "HN_RISER0"),("WYMY", "TETON2PDS", "FPB"),("WYMY", "TETON2PDS", "SWB"),
-    ("WYMY", "TETON3", "JBOG_RISER")
+    ("WYMY", "TETON3", "JBOG_RISER"),("WYMY", "TETON3PDS", "RISER") 
 
 ]
 
