@@ -61,7 +61,7 @@ from openpyxl.utils import get_column_letter
 TABLES = {
     "WYMY": "dw_manufacturing.viw_tpspcbainfo_wymy",
     "WYMTN": "dw_manufacturing.viw_tpspcbainfo_wymtn",
-    "WYX": "dw_manufacturing.viw_tpspcbainfo_wmx"
+    "WMX": "dw_manufacturing.viw_tpspcbainfo_wmx"
 }
 
 # 要查的 (site, model, testStage) 組合清單。要加/減組合,只要改這裡,不用動其他程式碼。
@@ -76,7 +76,7 @@ JOBS = [
     #LoB2
     ("WYMTN", "C41A8", "MB"),("WYMTN", "C219B", "MB"),
     ("WYMY", "C41A8", "MB"),("WYMY", "M1120", "SCM"),("WYMY", "C219B", "MB"),
-    ("WYX", "M1120", "SCM"), ("WYX", "C219B", "MB"),
+    ("WMX", "M1120", "SCM"), ("WMX", "C219B", "MB"),
 
     #LoB 3
     ("WYMTN", "NANAKA", "MB"),("WYMTN", "NANAKA", "PDB"),("WYMTN", "GOSHIN11", "FBP"),("WYMTN", "GOSHIN11", "RBP"),("WYMTN", "GOSHIN11", "ITPS"),
