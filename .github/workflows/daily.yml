@@ -11,6 +11,8 @@ permissions:
 concurrency:
   group: daily-cdp           # 同一時間只跑一個，避免兩次執行互相搶著 push
   cancel-in-progress: false
+
+
  
 jobs:
   run:
@@ -21,6 +23,17 @@ jobs:
       OUTPUT_DIR: ${{ github.workspace }}/output
  
     steps:
+    
+      # 更新這些版本 ↓
+      - uses: actions/checkout@v4    # 改成 v4（或最新）
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - uses: actions/setup-python@v5  # 改成 v5（或最新）
+        with:
+          python-version: '3.x'
+
+    
       - name: 取得 repo 裡的程式碼
         uses: actions/checkout@v4
  
