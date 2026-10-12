@@ -308,7 +308,7 @@ def blank_repeat_rows(data: pd.DataFrame, cols_to_blank):
     return out, is_first
 
 
-def run_fpy_analysis(df: pd.DataFrame, out_path: str):
+def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testStage: str = None):
     """對一份原始查詢結果做 FPY/VPY/Cycle Time 分析,輸出多分頁 xlsx 到 out_path。"""
     df = stringify_like_csv(df)
     df["tresult"] = df["tresult"].astype(str).str.strip()
