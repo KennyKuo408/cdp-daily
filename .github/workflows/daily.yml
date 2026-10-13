@@ -49,9 +49,9 @@ jobs:
       - name: 整理報表到 reports/日期/，並拆成 summary.csv 與 LoB.xlsx
         run: |
           shopt -s nullglob
-          summary=("$OUTPUT_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].xlsx)
+          summary=("$OUTPUT_DIR"/LoB_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].xlsx)
           if [ ${#summary[@]} -eq 0 ]; then
-            echo "::error::找不到彙總表（YYYYMMDD.xlsx）"
+            echo "::error::找不到彙總表（LoB_YYYYMMDD.xlsx）"
             exit 1
           fi
           tag=$(basename "${summary[0]}" .xlsx)
