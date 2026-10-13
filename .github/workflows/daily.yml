@@ -2,18 +2,16 @@ name: Daily CDP Download
 
 on:
   schedule:
-    - cron: "0 23 * * *"    # 每天台北 15:12（GitHub 用 UTC，台北時間減 8 小時）
+    - cron: "0 23 * * *"    # 每天台北 07:00（GitHub 用 UTC，台北時間減 8 小時 → UTC 23:00）
   workflow_dispatch:         # 允許在 Actions 頁面手動按按鈕執行（測試用）
-  
+
 permissions:
   contents: write            # 允許 workflow 把報表 commit 回 repo
- 
+
 concurrency:
   group: daily-cdp           # 同一時間只跑一個，避免兩次執行互相搶著 push
   cancel-in-progress: false
 
-
- 
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -21,31 +19,22 @@ jobs:
     env:
       TZ: Asia/Taipei
       OUTPUT_DIR: ${{ github.workspace }}/output
- 
-    steps:
-    
-      # 更新這些版本 ↓
-      - uses: actions/checkout@v4    # 改成 v4（或最新）
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - uses: actions/setup-python@v5  # 改成 v5（或最新）
-        with:
-          python-version: '3.x'
 
-    
+    steps:
       - name: 取得 repo 裡的程式碼
         uses: actions/checkout@v4
- 
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: 安裝 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
- 
+
       - name: 安裝套件
         run: pip install -r requirements.txt
- 
+
       - name: 執行下載與分析
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
@@ -56,8 +45,8 @@ jobs:
           python download_cdp.py
           echo "產出的檔案："
           ls -l "$OUTPUT_DIR"
- 
-      - name: 整理報表到 reports/日期/，並把彙總表另存成 CSV（方便 Claude 讀取）
+
+      - name: 整理報表到 reports/日期/，並拆成 summary.csv 與 LoB.xlsx
         run: |
           shopt -s nullglob
           summary=("$OUTPUT_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].xlsx)
@@ -70,35 +59,56 @@ jobs:
           mkdir -p "$dest"
           cp "$OUTPUT_DIR"/*.xlsx "$dest"/
           echo "REPORT_TAG=$tag" >> "$GITHUB_ENV"
- 
-          python - "$dest/$tag.xlsx" "$dest/summary.csv" << 'PY'
+
+          python - "$dest/$tag.xlsx" "$dest" << 'PY'
           import sys
           import pandas as pd
-          src, dst = sys.argv[1], sys.argv[2]
-          df = pd.read_excel(src, sheet_name="彙總")
-          for col in ["FPY (%)", "VPY (%)", "NDF"]:
-              if col in df.columns:
-                  df[col] = df[col].map(lambda v: "" if pd.isna(v) else f"{v * 100:.2f}%")
-          for col in ["P10 (sec)", "P50 (sec)", "P90 (sec)", "Std (sec)"]:
-              if col in df.columns:
-                  df[col] = df[col].round(2)
-          df.to_csv(dst, index=False, encoding="utf-8-sig")
-          print(f"已產生 {dst}，共 {len(df)} 列")
+
+          src, dest = sys.argv[1], sys.argv[2]
+
+          KEEP = ["Site", "Project", "Board", "Input Qty", "Output Qty",
+                  "Failure Qty", "FPY (%)", "VPY (%)", "NDF"]
+          PCT = ["FPY (%)", "VPY (%)", "NDF"]
+
+          def to_pct(df):
+              for col in PCT:
+                  if col in df.columns:
+                      df[col] = df[col].map(lambda v: "" if pd.isna(v) else f"{v * 100:.2f}%")
+              return df
+
+          xls = pd.ExcelFile(src)
+          names = xls.sheet_names
+          if len(names) < 4:
+              raise SystemExit(f"工作表數量不足（需要至少 4 頁），實際只有：{names}")
+
+          # 1) summary.csv：第 1 頁（彙總），只留指定 9 欄
+          summary = xls.parse(names[0])[KEEP].copy()
+          summary = to_pct(summary)
+          summary.to_csv(f"{dest}/summary.csv", index=False, encoding="utf-8-sig")
+          print(f"已產生 summary.csv，共 {len(summary)} 列")
+
+          # 2) LoB.xlsx：第 2~4 頁（LoB1/LoB2/LoB3），各一個 sheet，只留 A~I 欄
+          with pd.ExcelWriter(f"{dest}/LoB.xlsx", engine="openpyxl") as writer:
+              for name in names[1:4]:
+                  df = xls.parse(name).iloc[:, :9].copy()
+                  df = to_pct(df)
+                  df.to_excel(writer, sheet_name=name, index=False)
+                  print(f"LoB.xlsx 寫入 sheet「{name}」，共 {len(df)} 列")
           PY
- 
+
           echo "本次存進 repo 的檔案："
           ls -l "$dest"
- 
+
       - name: Commit 回 GitHub
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
- 
+
           # 先把這次的報表另外備份，不在 git 裡做合併，避免 xlsx 這種二進位檔產生衝突
           backup="$RUNNER_TEMP/report_$REPORT_TAG"
           rm -rf "$backup"
           cp -r "reports/$REPORT_TAG" "$backup"
- 
+
           for i in 1 2 3; do
             # 每次都對齊 GitHub 上最新的 main，再把這次的報表蓋上去 → 同一天的報表一律以最新這次為準
             git fetch origin main
@@ -106,7 +116,7 @@ jobs:
             rm -rf "reports/$REPORT_TAG"
             mkdir -p reports
             cp -r "$backup" "reports/$REPORT_TAG"
- 
+
             git add -f "reports/$REPORT_TAG"   # -f：.gitignore 有擋 xlsx/csv，這裡強制加入
             if git diff --cached --quiet; then
               echo "報表內容跟 GitHub 上的一樣，不需要 commit"
@@ -122,4 +132,3 @@ jobs:
           done
           echo "::error::重試 3 次仍無法 push"
           exit 1
- 
