@@ -6,19 +6,19 @@
   1. 連線 Databricks SQL Warehouse,分別查詢 WYMY / WYMTN 兩張表
   2. 對每張表的查詢結果直接做 FPY / VPY / Cycle Time 分析(邏輯照搬自 FPY.py)
   3. 分析結果直接輸出成多分頁 .xlsx,檔名規則跟原本抓資料時一樣:
-       WYMY_<日期>_<model>_<teststage>.xlsx
-       WYMTN_<日期>_<model>_<teststage>.xlsx
+       WYMY_<日期>_<model>_<testStage>.xlsx
+       WYMTN_<日期>_<model>_<testStage>.xlsx
      (不會另外產生一份原始單分頁檔案,分析結果直接用這個檔名蓋掉)
 
 環境變數(跟 fetch_daily_data.py 一樣):
-    DATABRICKS_HOST      例如 adb-xxxxxxxxxxxx.x.azuredatabricks.net
-    DATABRICKS_HTTP_PATH 例如 /sql/1.0/warehouses/xxxxxxxxxxxx
+    DATABRICKS_HOST      例如 adb-2289414555416422.2.azuredatabricks.net
+    DATABRICKS_HTTP_PATH 例如 /sql/1.0/warehouses/1322922dde4276d3
     DATABRICKS_TOKEN     你的 Personal Access Token(DBeaver Password 欄位那組,不是 Username)
 
 用法:
     python3 fetch_and_fpy.py
     python3 fetch_and_fpy.py --start 2026-09-13 --end 2026-09-14
-    python3 fetch_and_fpy.py --start 2026-09-13 --end 2026-09-14 --model YV4 --teststage MB
+    python3 fetch_and_fpy.py --start 2026-09-13 --end 2026-09-14 --model YV4 --testStage MB
 
 注意:
     FPY 分析邏輯假設查詢結果裡有這些欄位:
@@ -36,13 +36,15 @@ import argparse
 from datetime import datetime, timedelta
 
 
-# ---------- SSL: 公司網路有 SSL 攔截,在公司 Mac 上需要用合併過公司根證書的信任清單 ----------
-# 只有在 Mac 上找得到這份檔案時才套用。GitHub Actions 的機器不經過公司代理,不需要也沒有這個檔案。
+# ---------- SSL: 公司網路有 SSL 攔截,Python 需要用合併過公司根證書的信任清單 ----------
+# 這裡直接指定路徑,不依賴任何 shell 的 export 設定,不管從哪個 Terminal、
+# 哪個 shell、之後排程執行,都一定套用得到。
+# 如果這個檔案不存在,代表還沒照之前步驟做,連線時會照樣出現 SSL 憑證錯誤。
 _CA_BUNDLE = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP/combined-ca-bundle.pem")
 if os.path.exists(_CA_BUNDLE):
     os.environ.setdefault("SSL_CERT_FILE", _CA_BUNDLE)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", _CA_BUNDLE)
-elif not os.environ.get("GITHUB_ACTIONS"):
+else:
     print(f"[提醒] 找不到 {_CA_BUNDLE},如果之後出現 SSL CERTIFICATE_VERIFY_FAILED 錯誤,"
           f"代表需要先重新建立這份合併憑證檔案。")
 
@@ -68,42 +70,70 @@ TABLES = {
 # site 要對應 TABLES 裡的 key("WYMY" / "WYMTN")。不是每個 model/testStage 都兩邊都有,
 # 用三元素就能只列出某個 site 真的有在跑的組合,不會多查到另一邊去。
 # 跑一次 main() 會把下面每一組都查一遍,全部結果一起進同一份彙總表、一起寄出。
-JOBS = [
-    #LoB1
-    ("WYMTN", "YV4", "MB"),("WYMTN", "NL", "MB"),("WYMTN", "GC", "ServerBoard"),
-    ("WYMY", "YV4", "MB"),("WYMY", "NL", "MB"),("WYMY", "GC", "FDPB"),("WYMY", "GC", "RDPB"),
-    
-    #LoB2
-    ("WYMTN", "C41A8", "MB"),("WYMTN", "C219B", "MB"),
-    ("WYMY", "C41A8", "MB"),("WYMY", "M1120", "SCM"),("WYMY", "C219B", "MB"),
-    ("WMX", "M1120", "SCM"), ("WMX", "C219B", "MB"),
+JOBS_BY_LOB = {
+    "LoB 1": [
+        ("WYMTN", "YV4", "MB"), ("WYMTN", "NL", "MB"), ("WYMTN", "GC", "ServerBoard"),
+        ("WYMY", "YV4", "MB"), ("WYMY", "NL", "MB"), ("WYMY", "GC", "FDPB"), ("WYMY", "GC", "RDPB"),
+    ],
+    "LoB 2": [
+        ("WYMTN", "C41A8", "MB"), ("WYMTN", "C219B", "MB"),
+        ("WYMY", "C41A8", "MB"), ("WYMY", "M1120", "SCM"), ("WYMY", "C219B", "MB"),
+        ("WMX", "M1120", "SCM"), ("WMX", "C219B", "MB"),
+    ],
+    "LoB 3": [
+        ("WYMTN", "NANAKA", "MB"), ("WYMTN", "NANAKA", "PDB"),
+        ("WYMTN", "GOSHIN11", "FBP"), ("WYMTN", "GOSHIN11", "RBP"), ("WYMTN", "GOSHIN11", "ITPS"),
+        ("WYMTN", "TETON2", "HN_IOBD"), ("WYMTN", "TETON2", "HN_RISER0"),
+        ("WYMTN", "TETON2PDS", "FPB"), ("WYMTN", "TETON2PDS", "SWB"),
+        ("WYMTN", "TETON3", "JBOG_RISER"), ("WYMTN", "TETON3PDS", "SWB"),
+        ("WYMY", "NANAKA", "MB"), ("WYMY", "NANAKA", "PDB"),
+        ("WYMY", "GOSHIN11", "FBP"), ("WYMY", "GOSHIN11", "RBP"), ("WYMY", "GOSHIN11", "ITPS"),
+        ("WYMY", "TETON2", "HN_IOBD"), ("WYMY", "TETON2", "HN_RISER0"),
+        ("WYMY", "TETON2PDS", "FPB"), ("WYMY", "TETON2PDS", "SWB"),
+        ("WYMY", "TETON3", "JBOG_RISER"),
+    ],
+}
 
-    #LoB 3
-    ("WYMTN", "NANAKA", "MB"),("WYMTN", "NANAKA", "PDB"),("WYMTN", "GOSHIN11", "FBP"),("WYMTN", "GOSHIN11", "RBP"),("WYMTN", "GOSHIN11", "ITPS"),
-    ("WYMTN", "TETON2", "HN_IOBD"),("WYMTN", "TETON2", "HN_RISER0"),("WYMTN", "TETON2PDS", "FPB"),("WYMTN", "TETON2PDS", "SWB"),
-    ("WYMTN", "TETON3", "JBOG_RISER"),("WYMTN", "TETON3PDS", "SWB"),
-    ("WYMY", "NANAKA", "MB"),("WYMY", "NANAKA", "PDB"),("WYMY", "GOSHIN11", "FBP"),("WYMY", "GOSHIN11", "RBP"),("WYMY", "GOSHIN11", "ITPS"),
-    ("WYMY", "TETON2", "HN_IOBD"),("WYMY", "TETON2", "HN_RISER0"),("WYMY", "TETON2PDS", "FPB"),("WYMY", "TETON2PDS", "SWB"),
-    ("WYMY", "TETON3", "JBOG_RISER"),("WYMY", "TETON3PDS", "RISER") 
+# 原本的 JOBS 照舊,main() 不用改
+JOBS = [job for lob_jobs in JOBS_BY_LOB.values() for job in lob_jobs]
 
-]
+# (site, model) -> LoB。results 的 key 是 (site, model, board),board 可能是
+# GEN5_T1C_AUTO、E-Load 這類衍生名稱,所以用 (site, model) 對應,不用 testStage。
+# 這樣 GOSHIN11 的 E-Load 也會自動歸到 LoB 3。
+SITE_MODEL_TO_LOB = {
+    (site, model): lob
+    for lob, lob_jobs in JOBS_BY_LOB.items()
+    for site, model, _ in lob_jobs
+}
+LOB_ORDER = list(JOBS_BY_LOB.keys())
+
+# 同一個 LoB 內,列的排序照 JOBS 裡的出現順序(E-Load 會跟著 GOSHIN11 排,不會掉到最後)
+_JOB_ORDER = {}
+for _i, (_s, _m, _t) in enumerate(JOBS):
+    _JOB_ORDER.setdefault((_s, _m), _i)
+
+# 是否額外保留一張「彙總」分頁(全部合在一起,放在第一頁)。
+KEEP_COMBINED_SHEET = True
+
+#-------------------------------------------------------------------------
 
 STAGE_OVERRIDE_JOBS = [
     ("WYMTN", "GOSHIN11", "RBP", "TE", "E-Load"),
     ("WYMY", "GOSHIN11", "RBP", "TE", "E-Load"),
 ]
 
-BLANK_COLS = ["plant", "customer", "usn", "childusn", "stage"]
+
+BLANK_COLS = ["plant", "customer", "usn", "childusn"]
 
 
-# ---------- YV4 / MB 特例分類(其他 model/teststage 組合完全不受影響) ----------
+# ---------- YV4 / MB 特例分類(其他 model/testStage 組合完全不受影響) ----------
 
 GEN_TYPE_LOOKUP = {
     # 之後補: upn -> (gen, type)
     # 例如: "B91.10H1": ("GEN4", "T1C"),
     # WMMTN
     "B91.10H10.0019":("GEN5","T1M"),
-    "B91.10H10.001C":("GEN5","T1C"), "B91.10H10.0051":("GEN5","T1C"),
+    "B91.10H10.0019":("GEN5","T1C"), "B91.10H10.0019":("GEN5","T1C"), "B91.10H10.0051":("GEN5","T1C"),
     "B91.10H10.0017":("GEN4","T1M"), "B91.10H10.0018":("GEN4","T1M"), "B91.10H10.003K":("GEN4","T1M"), "B91.10H10.003T":("GEN4","T1M"),
     "B91.10H10.0055":("GEN4","T1C"), "B91.10H10.0058":("GEN4","T1C"), "B91.10H10.005A":("GEN4","T1C"), "B91.10H10.0059":("GEN4","T1C"), "B91.10H10.001B":("GEN4","T1C"), "B91.10H10.001A":("GEN4","T1C"),
     #WYMY
@@ -149,13 +179,13 @@ def extract_fixture_number(fixture_id):
     return int(m.group(1)) if m else None
 
 
-def classify_board(site, model, teststage, upn, fixture_id):
+def classify_board(site, model, testStage, upn, fixture_id):
     """
     YV4/MB 特例: 依 upn 分 GEN4/GEN5 x T1C/T1M;WYMY 再依 fixtureId 數字門檻加 _AUTO/_MANUAL。
-    其他 model/teststage 組合完全照舊,直接回傳 teststage,行為跟改之前一樣。
+    其他 model/testStage 組合完全照舊,直接回傳 testStage,行為跟改之前一樣。
     """
-    if (model, teststage) != ("YV4", "MB"):
-        return teststage
+    if (model, testStage) != ("YV4", "MB"):
+        return testStage
 
     gen_type = lookup_gen_type(upn)
     if gen_type is None:
@@ -172,10 +202,8 @@ def classify_board(site, model, teststage, upn, fixture_id):
 
 # ---------- 輸出路徑(OneDrive 同步資料夾,不是本機 Desktop) ----------
  
-# 有設定環境變數 OUTPUT_DIR(GitHub Actions 上會設)就存到那裡,
-# 沒設定(在 Mac 上直接跑)就照舊存到 OneDrive 同步資料夾。
 ONEDRIVE_CDP_DIR = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP")
-ONEDRIVE_DAILY_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(ONEDRIVE_CDP_DIR, "daily")
+ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "daily")
  
 
 # ---------- 連線 / 抓資料 ----------
@@ -234,7 +262,7 @@ def get_connection_params():
 
 def compute_default_window():
     now = datetime.now()
-    today_8am = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    today_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
     end = today_8am if now >= today_8am else today_8am - timedelta(days=1)
     start = end - timedelta(days=1)
     return start, end
@@ -245,11 +273,13 @@ def parse_args():
     parser.add_argument("--start", type=str, help="窗口起始日期 YYYY-MM-DD (預設抓昨天08:00)")
     parser.add_argument("--end", type=str, help="窗口結束日期 YYYY-MM-DD (預設抓今天08:00)")
     parser.add_argument("--model", type=str, default=None,
-                         help="只查單一 model(搭配 --teststage 一起用)。不指定的話,改成跑 JOBS 清單裡全部組合")
-    parser.add_argument("--teststage", type=str, default=None,
+                         help="只查單一 model(搭配 --testStage 一起用)。不指定的話,改成跑 JOBS 清單裡全部組合")
+    parser.add_argument("--testStage", type=str, default=None,
                          help="只查單一 testStage(搭配 --model 一起用)。不指定的話,改成跑 JOBS 清單裡全部組合")
     parser.add_argument("--site", type=str, default=None, choices=list(TABLES.keys()),
-                         help="搭配 --model/--teststage 時,只查這一個 site;不給的話兩個 site 都查")
+                         help="搭配 --model/--testStage 時,只查這一個 site;不給的話兩個 site 都查")
+    parser.add_argument("--recipient", type=str, default="Kenny_Kuo@wiwynn.com",
+                        help="收件人 email (預設 Will_Fang@wiwynn.com,測試時可用 --recipient 覆蓋)")
     return parser.parse_args()
 
 
@@ -269,7 +299,7 @@ def fetch_table(connection, table_name, model, testStage, start_str, end_str, st
     cursor = connection.cursor()
     cursor.execute(query, {
         "model": f"%{model.upper()}%",
-        "testStage": testＳtage,
+        "testStage": testStage.upper(),
         "start": start_str,
         "end": end_str,
     })
@@ -328,9 +358,51 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
         .round(3)
     )
     cycle_map = _cycle_by_sn
-    df["cycleTime"] = df["usn"].map(cycle_map)
 
-    sn_has_zero = set(df.loc[df["tresult"] == "0", "usn"])
+    # ---- YV4/MB 特例: 同一次測試會有 PI、TD 兩個stage,要合併成一個cycle time:
+    #      該SN「最後一次TD的endTime」-「第一次PI的startTime」。
+    #      只有PI沒有TD、或只有TD沒有PI的SN,視為資料不完整,一律歸入「只有Fail的SN」
+    #      (不管tresult是多少),不計入Base Output / Cycle Time統計母體。
+    #      其他model/testStage組合完全不受影響(incomplete_pi_td_usn永遠是空的)。
+    incomplete_pi_td_usn = []   # 不再把 PI/TD 不齊全當 Fail
+    pitd_both_usn = None        # None = 非 YV4/MB,不限制
+    pi_only_usn = []
+
+    if model == "YV4" and testStage == "MB":
+        _stage_sets = df.groupby("usn")["stage"].apply(lambda s: set(s.dropna().unique()))
+        _both = _stage_sets[_stage_sets.apply(lambda s: {"PI", "TD"}.issubset(s))].index
+        _pi_only = _stage_sets[_stage_sets.apply(lambda s: "PI" in s and "TD" not in s)].index
+
+        _pi_start = (
+            df.loc[df["stage"] == "PI"]
+            .assign(_s=pd.to_datetime(df.loc[df["stage"] == "PI", "startTime"], errors="coerce"))
+            .groupby("usn")["_s"].min()
+        )
+        _td_end = (
+            df.loc[df["stage"] == "TD"]
+            .assign(_e=pd.to_datetime(df.loc[df["stage"] == "TD", "endTime"], errors="coerce"))
+            .groupby("usn")["_e"].max()
+        )
+        _pitd_cycle = (_td_end - _pi_start).dt.total_seconds().round(3)
+
+        # PI、TD 都有:最後一次 TD 結束 - 第一次 PI 開始
+        cycle_map.loc[_both] = _pitd_cycle.loc[_both]
+        # 只有 PI / 只有 TD 的 SN:cycle_map 原本就是該 SN 各列時間加總 = 單段時間,不用動
+        pitd_both_usn = set(_both)
+        pi_only_usn = list(_pi_only)
+
+
+
+    
+    df["cycleTime"] = df["usn"].map(cycle_map)
+    if pitd_both_usn is not None:
+        # cycleTime 欄只留 PI+TD 都有的 SN(統計分頁的公式吃這欄),單段時間另放一欄供參考
+        _not_both = ~df["usn"].isin(pitd_both_usn)
+        df["cycleTime_單段"] = df["cycleTime"].where(_not_both)
+        df["cycleTime"] = df["cycleTime"].where(~_not_both)
+
+    # YV4/MB的「PI/TD不齊全」SN,無論tresult為何,一律視同Fail,併入sn_has_zero判斷基礎
+    sn_has_zero = set(df.loc[df["tresult"] == "0", "usn"]) | set(incomplete_pi_td_usn)
 
     sheet2_df = df[df["usn"].isin(sn_has_zero)].copy()
     sheet2_df = sheet2_df.sort_values(["usn", "startTime"], kind="stable").reset_index(drop=True)
@@ -344,8 +416,10 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
     sheet4_df = remaining_df[dup_mask].copy()
 
     only_zero_usn_series = sheet2_df.groupby("usn")["tresult"].apply(lambda x: (x == "0").all())
-    only_zero_usn = only_zero_usn_series[only_zero_usn_series].index.tolist()
+    only_zero_usn = set(only_zero_usn_series[only_zero_usn_series].index.tolist()) | set(incomplete_pi_td_usn)
+    only_zero_usn = sorted(only_zero_usn)
     only_zero_usn_count = len(only_zero_usn)
+    pi_only_not_output = set(pi_only_usn) - set(only_zero_usn)
 
     # ---- 額外用 Python 直接算出跟「統計」分頁公式對應的數值 ----
     # (Excel 公式寫進 xlsx 後,openpyxl 讀不到算好的結果,只有真的用 Excel/Numbers
@@ -353,7 +427,7 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
     fail_sn_count = sheet2_df["usn"].nunique()
     pass_sn_count = sheet3_df["usn"].nunique()
     base_input_qty = fail_sn_count + pass_sn_count
-    base_output_qty = base_input_qty - only_zero_usn_count
+    base_output_qty = base_input_qty - only_zero_usn_count - len(pi_only_not_output)
 
     if fail_sn_count > 0:
         _grp = sheet2_df.groupby("usn")["tresult"]
@@ -365,9 +439,12 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
 
     fpy = (base_input_qty - fail_sn_count) / base_input_qty if base_input_qty else None
     vpy = (base_input_qty - fail_sn_count + ndf_count) / base_input_qty if base_input_qty else None
+
     ndf_rate = (vpy - fpy) if (fpy is not None and vpy is not None) else None
 
     _valid_ct = cycle_map.drop(index=[u for u in only_zero_usn if u in cycle_map.index], errors="ignore").dropna()
+    if pitd_both_usn is not None:
+        _valid_ct = _valid_ct[_valid_ct.index.isin(pitd_both_usn)]
     if len(_valid_ct) > 0:
         p10_sec = _valid_ct.quantile(0.1)
         p50_sec = _valid_ct.quantile(0.5)
@@ -623,50 +700,39 @@ SUMMARY_HEADERS = [
 ]
 
 
-def build_summary(results: dict, out_path: str):
-    """
-    results: { (site, model, board): metrics_dict }
-    一個 (site, model, board) 一列。
-
-    注意:
-    - P10/P50/P90 仍是從資料現場算的百分位數,單位秒,跟個別 board 的「統計」分頁一致,不做任何換算。
-    - Std 改成查 STD_LOOKUP[(site, model, board)],不再用 P90-P10 現場算。
-      查不到就印提醒、格子留空,不會偷偷放錯值。
-    """
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "彙總"
-
+def _write_summary_sheet(ws, rows):
+    """rows: [((site, model, board), metrics 或 None), ...]
+    metrics 是 None 代表這個 job 今天沒有資料,Input Qty ~ Std 全部填 "-"。"""
     for col, header in enumerate(SUMMARY_HEADERS, start=1):
         ws.cell(row=1, column=col, value=header)
 
     row = 2
-    for (site, model, board), m in results.items():
-        if m is None:
-            continue
+    for (site, model, board), m in rows:
         ws.cell(row=row, column=1, value=site)
         ws.cell(row=row, column=2, value=model)
         ws.cell(row=row, column=3, value=board)
+
+        if m is None:
+            for col in range(4, len(SUMMARY_HEADERS) + 1):
+                ws.cell(row=row, column=col, value="-")
+            row += 1
+            continue
+
         ws.cell(row=row, column=4, value=m["base_input_qty"])
         ws.cell(row=row, column=5, value=m["base_output_qty"])
         ws.cell(row=row, column=6, value=m["failure_qty"])
 
-        c = ws.cell(row=row, column=7, value=m["fpy"])
-        c.number_format = "0.00%"
-        c = ws.cell(row=row, column=8, value=m["vpy"])
-        c.number_format = "0.00%"
-        c = ws.cell(row=row, column=9, value=m["ndf_rate"])
-        c.number_format = "0.00%"
+        ws.cell(row=row, column=7, value=m["fpy"]).number_format = "0.00%"
+        ws.cell(row=row, column=8, value=m["vpy"]).number_format = "0.00%"
+        ws.cell(row=row, column=9, value=m["ndf_rate"]).number_format = "0.00%"
 
         for col, key in [(10, "p10_sec"), (11, "p50_sec"), (12, "p90_sec")]:
-            val = m[key]
-            ws.cell(row=row, column=col, value=val).number_format = "0.00"
+            ws.cell(row=row, column=col, value=m[key]).number_format = "0.00"
 
         std_val = STD_LOOKUP.get((site, model, board))
         if std_val is None:
             print(f"[提醒] STD_LOOKUP 沒有 {(site, model, board)} 這組的值,Std 欄位留空")
         ws.cell(row=row, column=13, value=std_val).number_format = "0.00"
-
         row += 1
 
     header_font = Font(name="Arial", bold=True, color="FFFFFF")
@@ -692,6 +758,66 @@ def build_summary(results: dict, out_path: str):
         ws.column_dimensions[letter].width = min(max_len + 4, 20)
     ws.freeze_panes = "A2"
 
+
+def _lob_slots(lob):
+    """該 LoB 的所有 job,回傳 [(site, model, board_label)],順序照 JOBS 的出現順序。
+    STAGE_OVERRIDE_JOBS(例如 GOSHIN11 E-Load)也算一個 job,排在同 site/model 那組後面。"""
+    slots = [(site, model, testStage) for site, model, testStage in JOBS_BY_LOB[lob]]
+    for site, model, _testStage, _stage, board_label in STAGE_OVERRIDE_JOBS:
+        if SITE_MODEL_TO_LOB.get((site, model)) == lob:
+            slots.append((site, model, board_label))
+    return sorted(slots, key=lambda s: _JOB_ORDER.get((s[0], s[1]), 9999))
+
+
+def build_summary(results: dict, out_path: str):
+    """
+    results: { (site, model, board): metrics_dict }
+    LoB 1/2/3 每張 sheet 列出該 LoB 的「所有 job」:有資料就放數字,沒資料就放一列 "-"。
+    YV4/MB 的 board 是衍生名稱(GEN5_T1C_AUTO 等),同一個 job 可能對應多列。
+    「彙總」只列有資料的列(跟之前一樣)。
+    """
+    used = set()
+    lob_rows = {lob: [] for lob in LOB_ORDER}
+
+    for lob in LOB_ORDER:
+        for site, model, board in _lob_slots(lob):
+            if (model, board) == ("YV4", "MB"):
+                keys = [k for k in results if k[0] == site and k[1] == model]
+            else:
+                keys = [k for k in results if k == (site, model, board)]
+            keys = [k for k in keys if results[k] is not None]
+
+            if keys:
+                for k in keys:
+                    lob_rows[lob].append((k, results[k]))
+                    used.add(k)
+            else:
+                lob_rows[lob].append(((site, model, board), None))
+
+    # 有資料、但沒對到任何 job 的列(例如 board 名稱沒預期到)不能默默消失
+    other = []
+    for k, m in results.items():
+        if m is None or k in used:
+            continue
+        lob = SITE_MODEL_TO_LOB.get((k[0], k[1]))
+        (lob_rows[lob] if lob else other).append((k, m))
+
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+
+    for lob in LOB_ORDER:
+        _write_summary_sheet(wb.create_sheet(lob), lob_rows[lob])
+
+    if other:
+        print(f"[提醒] 有 {len(other)} 列找不到對應的 LoB,已放進「其他」分頁: "
+              f"{[k for k, _ in other]}")
+        _write_summary_sheet(wb.create_sheet("其他"), other)
+
+    if KEEP_COMBINED_SHEET:
+        all_rows = [it for lob in LOB_ORDER for it in lob_rows[lob] if it[1] is not None] + other
+        _write_summary_sheet(wb.create_sheet("彙總", 0), all_rows)
+
+    print("build_summary 分頁:", wb.sheetnames)
     wb.save(out_path)
 
 
@@ -712,14 +838,14 @@ def main():
 
     print(f"查詢窗口: {start_str}  ~  {end_str}")
 
-    # --model/--teststage 兩個都給的話,只查這一組(方便單獨測試),--site 可選擇只查一邊;
-    # 沒給 --model/--teststage 的話,改成把 JOBS 清單裡全部 (site, model, teststage) 組合都查一遍。
-    if args.model and args.teststage:
+    # --model/--testStage 兩個都給的話,只查這一組(方便單獨測試),--site 可選擇只查一邊;
+    # 沒給 --model/--testStage 的話,改成把 JOBS 清單裡全部 (site, model, testStage) 組合都查一遍。
+    if args.model and args.testStage:
         sites = [args.site] if args.site else list(TABLES.keys())
-        jobs = [(site, args.model, args.teststage) for site in sites]
+        jobs = [(site, args.model, args.testStage) for site in sites]
     else:
         jobs = JOBS
-    print(f"本次要查的 (site, model, teststage) 組合: {jobs}")
+    print(f"本次要查的 (site, model, testStage) 組合: {jobs}")
 
     host, http_path, token = get_connection_params()
 
@@ -733,35 +859,51 @@ def main():
     results = {}
 
     try:
-        for site, model, teststage in jobs:
+        for site, model, testStage in jobs:
             table_name = TABLES[site]
-            print(f"=== site={site}  model={model}  testStage={teststage} ===")
+            print(f"=== site={site}  model={model}  testStage={testStage} ===")
             print(f"查詢 {table_name} ...")
-            df = fetch_table(connection, table_name, model, teststage, start_str, end_str)
+            df = fetch_table(connection, table_name, model, testStage, start_str, end_str)
             print(f"  取得 {len(df)} 筆資料")
 
             if df.empty:
                 print(f"  沒有資料,跳過")
                 continue
 
+            # 只有 YV4/MB 需要 PI+TD 一起算cycle time；其他組合維持原本只看TD的行為，
+            # 這裡立刻把多抓到的PI列濾掉，確保非YV4/MB的結果跟改之前完全一樣。
+            if (model, testStage) != ("YV4", "MB"):
+                df = df[df["stage"] == "TD"].copy()
+
+
+
             df["board"] = df.apply(
-                lambda r: classify_board(site, model, teststage, r.get("upn"), r.get("fixtureId")),
+                lambda r: classify_board(site, model, testStage, r.get("upn"), r.get("fixtureId")),
                 axis=1,
             )
+            # YV4/MB: 同一個 SN 的 PI、TD 必須在同一個 board,
+            # 以該 SN「最後一次 TD」的 board 為準,套用到它所有的列
+            if (model, testStage) == ("YV4", "MB"):
+                sn_board = (
+                    df[df["stage"] == "TD"]
+                    .sort_values("endTimeLocal")
+                    .groupby("usn")["board"]
+                    .last()
+                )
+                df["board"] = df["usn"].map(sn_board).fillna(df["board"])  # 只有 PI 的 SN 保留原判斷
 
             for board, group_df in df.groupby("board"):
                 out_path = f"{ONEDRIVE_DAILY_DIR}/{site}_{date_tag}_{model}_{board}.xlsx"
                 print(f"  [{board}] 跑 FPY 分析 -> {out_path}")
-                metrics = run_fpy_analysis(group_df.copy(), out_path)
+                metrics = run_fpy_analysis(group_df.copy(), out_path, model, testStage)
                 results[(site, model, board)] = metrics
                 print(f"  已存成: {out_path}")
-
         # 處理stage override的特例報告(例如GOSHIN11 E-Load)，跟原本JOBS清單的處理完全分開，
         # 不影響原本RBP(stage='TD')那份報告。
-        for site, model, teststage, override_stage, board_label in STAGE_OVERRIDE_JOBS:
+        for site, model, testStage, override_stage, board_label in STAGE_OVERRIDE_JOBS:
             table_name = TABLES[site]
-            print(f"=== site={site} model={model} teststage={teststage} stage={override_stage} -> board={board_label} ===")
-            df = fetch_table(connection, table_name, model, teststage, start_str, end_str,
+            print(f"=== site={site} model={model} teststage={testStage} stage={override_stage} -> board={board_label} ===")
+            df = fetch_table(connection, table_name, model, testStage, start_str, end_str,
                             stages=(override_stage,))
             print(f"  取得 {len(df)} 筆資料")
 
@@ -771,17 +913,17 @@ def main():
 
             out_path = f"{ONEDRIVE_DAILY_DIR}/{site}_{date_tag}_{model}_{board_label}.xlsx"
             print(f"  跑 FPY 分析 -> {out_path}")
-            metrics = run_fpy_analysis(df.copy(), out_path, model, teststage)
+            metrics = run_fpy_analysis(df.copy(), out_path, model, testStage)
             results[(site, model, board_label)] = metrics
             print(f"  已存成: {out_path}")
-  
     finally:
         connection.close()
 
-    summary_path = f"{ONEDRIVE_DAILY_DIR}/{date_tag}.xlsx"
+    summary_path = f"{ONEDRIVE_DAILY_DIR}/LoB_{date_tag}.xlsx"
     print(f"產生彙總表 -> {summary_path}")
     build_summary(results, summary_path)
     print(f"已存成: {summary_path}")
+
 
 
 if __name__ == "__main__":
