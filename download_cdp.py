@@ -203,7 +203,8 @@ def classify_board(site, model, testStage, upn, fixture_id):
 # ---------- 輸出路徑(OneDrive 同步資料夾,不是本機 Desktop) ----------
  
 ONEDRIVE_CDP_DIR = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP")
-ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "daily")
+# GitHub Actions 會設定 OUTPUT_DIR,有設就輸出到那裡;沒設(Mac 本機執行)就維持原本的 OneDrive/daily
+ONEDRIVE_DAILY_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(ONEDRIVE_CDP_DIR, "daily")
  
 
 # ---------- 連線 / 抓資料 ----------
