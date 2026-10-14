@@ -70,27 +70,37 @@ jobs:
                   "Failure Qty", "FPY (%)", "VPY (%)", "NDF"]
           PCT = ["FPY (%)", "VPY (%)", "NDF"]
 
+          def fmt(v):
+              # 沒資料的列是 "-"，不能拿去乘 100；只有真正的數字才轉成百分比
+              if isinstance(v, (int, float)) and not pd.isna(v):
+                  return f"{v * 100:.2f}%"
+              return "" if pd.isna(v) else v
+
           def to_pct(df):
               for col in PCT:
                   if col in df.columns:
-                      df[col] = df[col].map(lambda v: "" if pd.isna(v) else f"{v * 100:.2f}%")
+                      df[col] = df[col].map(fmt)
               return df
 
           xls = pd.ExcelFile(src)
           names = xls.sheet_names
-          if len(names) < 4:
-              raise SystemExit(f"工作表數量不足（需要至少 4 頁），實際只有：{names}")
+          print("工作表：", names)
 
-          # 1) summary.csv：第 1 頁（彙總），只留指定 9 欄
-          summary = xls.parse(names[0])[KEEP].copy()
+          # 依名稱找：彙總 = 「彙總」；LoB = 名稱以 LoB 開頭（LoB 1 / LoB 2 / LoB 3）
+          if "彙總" not in names:
+              raise SystemExit(f"找不到「彙總」分頁，實際只有：{names}")
+          lob_names = [n for n in names if n.replace(" ", "").lower().startswith("lob")]
+          if not lob_names:
+              raise SystemExit(f"找不到 LoB 分頁，實際只有：{names}")
+
+          summary = xls.parse("彙總")[KEEP].copy()
           summary = to_pct(summary)
           summary.to_csv(f"{dest}/summary.csv", index=False, encoding="utf-8-sig")
           print(f"已產生 summary.csv，共 {len(summary)} 列")
 
-          # 2) LoB.xlsx：第 2~4 頁（LoB1/LoB2/LoB3），各一個 sheet，只留 A~I 欄
           with pd.ExcelWriter(f"{dest}/LoB.xlsx", engine="openpyxl") as writer:
-              for name in names[1:4]:
-                  df = xls.parse(name).iloc[:, :9].copy()
+              for name in lob_names:
+                  df = xls.parse(name)[KEEP].copy()
                   df = to_pct(df)
                   df.to_excel(writer, sheet_name=name, index=False)
                   print(f"LoB.xlsx 寫入 sheet「{name}」，共 {len(df)} 列")
