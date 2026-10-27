@@ -970,7 +970,7 @@ def main():
     finally:
         connection.close()
 
-    summary_path = f"{ONEDRIVE_DAILY_DIR}/LoB_{date_tag}.xlsx"
+    summary_path = f"{ONEDRIVE_DAILY_DIR}/{date_tag}.xlsx"
     print(f"產生彙總表 -> {summary_path}")
     build_summary(results, summary_path)
     print(f"已存成: {summary_path}")
