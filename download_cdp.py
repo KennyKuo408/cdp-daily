@@ -85,12 +85,12 @@ JOBS_BY_LOB = {
         ("WYMTN", "GOSHIN11", "FBP"), ("WYMTN", "GOSHIN11", "RBP"), ("WYMTN", "GOSHIN11", "ITPS"),
         ("WYMTN", "TETON2", "HN_IOBD"), ("WYMTN", "TETON2", "HN_RISER0"),
         ("WYMTN", "TETON2PDS", "FPB"), ("WYMTN", "TETON2PDS", "SWB"),
-        ("WYMTN", "TETON3", "JBOG_RISER"), ("WYMTN", "TETON3PDS", "SWB"),
+        ("WYMTN", "TETON3", "JBOG_RISER"), ("WYMTN", "TETON3PDS", "SWB"),("WYMTN", "TETON3PDS", "RISER"),
         ("WYMY", "NANAKA", "MB"), ("WYMY", "NANAKA", "PDB"),
         ("WYMY", "GOSHIN11", "FBP"), ("WYMY", "GOSHIN11", "RBP"), ("WYMY", "GOSHIN11", "ITPS"),
         ("WYMY", "TETON2", "HN_IOBD"), ("WYMY", "TETON2", "HN_RISER0"),
         ("WYMY", "TETON2PDS", "FPB"), ("WYMY", "TETON2PDS", "SWB"),
-        ("WYMY", "TETON3", "JBOG_RISER"),
+        ("WYMY", "TETON3", "JBOG_RISER"),("WYMY", "TETON3PDS", "RISER")
     ],
 }
 
@@ -118,8 +118,10 @@ KEEP_COMBINED_SHEET = True
 #-------------------------------------------------------------------------
 
 STAGE_OVERRIDE_JOBS = [
-    ("WYMTN", "GOSHIN11", "RBP", "TE", "E-Load"),
+    
+    #("WYMTN", "GOSHIN11", "RBP", "TE", "E-Load"),
     ("WYMY", "GOSHIN11", "RBP", "TE", "E-Load"),
+    
 ]
 
 
@@ -147,6 +149,7 @@ GEN_TYPE_LOOKUP = {
 STD_LOOKUP = {
     # 之後補: (site, model, board) -> std 數值(分鐘,直接對應彙總表 Std(sec) 那欄,不再用 P90-P10 現場算)
     # 例如: ("WYMY", "YV4", "GEN4_T1C_AUTO"): 12.34,
+    # LoB 1
     #WYMTN
     ("WYMTN", "YV4", "GEN5_T1M"): 1980, ("WYMTN", "YV4", "GEN5_T1C"): 1800, ("WYMTN", "YV4", "GEN4_T1M"): 1980, ("WYMTN", "YV4", "GEN4_T1C"): 1800,
     ("WYMTN", "YV4", "SPD"): 1410, ("WYMTN", "YV4", "WF"): 750, ("WYMTN", "YV4", "FAN"): 300,("WYMTN", "YV4", "MEDUSA"):250 ,
@@ -159,7 +162,21 @@ STD_LOOKUP = {
     ("WYMY", "YV4", "GEN5_T1M_MANUAL"):2449 ,("WYMY", "YV4", "GEN5_T1C_MANUAL"):1713 ,("WYMY", "YV4", "GEN4_T1M_MANUAL"):2142, ("WYMY", "YV4", "GEN4_T1C_MANUAL"):1602,
     ("WYMY", "YV4", "FAN"):152, ("WYMY", "YV4", "FIO"):40,("WYMY", "YV4", "BSM"):158,("WYMY", "YV4", "SPD"):1503,("WYMY", "YV4", "MGM"):756,
     ("WYMY", "YV4", "WF"):1239,("WYMY", "GC", "FDPB"):1139,("WYMY", "GC", "RDPB"):1218,("WYMY", "NL", "MB"):5333,
-    
+    # LoB 2
+    #WYMTN
+    ("WYMTN", "C41A8", "MB"):997, ("WYMTN", "C219B", "MB"):480,
+    #WYMY
+    ("WYMY", "C41A8", "MB"):881 ,("WYMY", "M1120", "SCM"):451, ("WYMY", "C219B", "MB"):512,
+    #WMX
+    # LoB 3
+    #WYMTN
+    ("WYMTN", "NANAKA", "MB"):2837, ("WYMTN", "NANAKA", "PDB"):322,("WYMTN", "GOSHIN11", "FBP"):986, ("WYMTN", "GOSHIN11", "RBP"):309, ("WYMTN", "GOSHIN11", "ITPS"):472,
+    ("WYMTN", "TETON2", "HN_IOBD"):550, ("WYMTN", "TETON2", "HN_RISER0"):399,("WYMTN", "TETON2PDS", "FPB"):900, ("WYMTN", "TETON2PDS", "SWB"):705,
+    ("WYMTN", "TETON3", "JBOG_RISER"):210, ("WYMTN", "TETON3PDS", "SWB"):705,("WYMTN", "TETON3PDS", "RISER"):716,
+    #WYMY
+    ("WYMY", "NANAKA", "MB"):3213, ("WYMY", "NANAKA", "PDB"):354,("WYMY", "GOSHIN11", "FBP"):1296, ("WYMY", "GOSHIN11", "RBP"):431, ("WYMY", "GOSHIN11", "ITPS"):530,
+    ("WYMY", "TETON2", "HN_IOBD"):511, ("WYMY", "TETON2", "HN_RISER0"):214,("WYMY", "TETON2PDS", "FPB"):1272, ("WYMY", "TETON2PDS", "SWB"):816,
+    ("WYMY", "TETON3", "JBOG_RISER"):178,#("WYMY", "TETON3PDS", "RISER"):
 }
 
 FIXTURE_NUM_RE = re.compile(r"YV4_MB_(\d{3})_MP", re.IGNORECASE)
@@ -203,8 +220,7 @@ def classify_board(site, model, testStage, upn, fixture_id):
 # ---------- 輸出路徑(OneDrive 同步資料夾,不是本機 Desktop) ----------
  
 ONEDRIVE_CDP_DIR = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP")
-# GitHub Actions 會設定 OUTPUT_DIR,有設就輸出到那裡;沒設(Mac 本機執行)就維持原本的 OneDrive/daily
-ONEDRIVE_DAILY_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(ONEDRIVE_CDP_DIR, "daily")
+ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "monthly")
  
 
 # ---------- 連線 / 抓資料 ----------
@@ -263,7 +279,7 @@ def get_connection_params():
 
 def compute_default_window():
     now = datetime.now()
-    today_8am = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    today_8am = now.replace(hour=0, minute=0, second=0, microsecond=0)
     end = today_8am if now >= today_8am else today_8am - timedelta(days=1)
     start = end - timedelta(days=1)
     return start, end
@@ -339,6 +355,25 @@ def blank_repeat_rows(data: pd.DataFrame, cols_to_blank):
     return out, is_first
 
 
+def _parse_naive_dt(series):
+    """時間字串 -> tz-naive datetime(保留牆上時間)。處理:
+    '2026-10-13_09:43:39' (日期與時間中間是底線)、
+    '2026-10-13T01:01:58-06:00' / '...Z' (帶時區,去掉時區只留牆上時間,避免 naive/aware 相減出錯)。
+    解析不了的變 NaT。"""
+    s = series.astype("string").str.strip()
+    s = s.str.replace("_", " ", regex=False).str.replace("T", " ", regex=False)
+    s = s.str.replace(r"(Z|[+-]\d{2}:?\d{2})$", "", regex=True)
+    return pd.to_datetime(s, errors="coerce")
+
+
+def resolve_times(df, primary, fallback):
+    """每一列先用 primary 欄(startTime/endTime),解析不到才退回 fallback 欄(startTimeLocal/endTimeLocal)。
+    有些資料只有 xxxLocal、有些只有 xxx、有些都有,逐列補位。"""
+    a = _parse_naive_dt(df[primary]) if primary in df.columns else pd.Series(pd.NaT, index=df.index)
+    b = _parse_naive_dt(df[fallback]) if fallback in df.columns else pd.Series(pd.NaT, index=df.index)
+    return a.fillna(b)
+
+
 def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testStage: str = None):
     """對一份原始查詢結果做 FPY/VPY/Cycle Time 分析,輸出多分頁 xlsx 到 out_path。"""
     df = stringify_like_csv(df)
@@ -348,16 +383,29 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
     df = df.sort_values(by="usn", kind="stable").reset_index(drop=True)
 
     # ---- cycleTime改成「每個SN只有一個值」:該SN所有列裡,最晚endTimeLocal - 最早startTimeLocal ----
-    _start_dt = pd.to_datetime(df["startTime"], errors="coerce")
-    _end_dt = pd.to_datetime(df["endTime"], errors="coerce")
+    _start_dt = resolve_times(df, "startTime", "startTimeLocal")
+    _end_dt = resolve_times(df, "endTime", "endTimeLocal")
     _row_duration = (_end_dt - _start_dt).dt.total_seconds()
 
+    _bad = int(_row_duration.isna().sum())
+    if _bad:
+        print(f"  [警告] {_bad}/{len(df)} 列的開始/結束時間無法解析,這些列不計入 cycleTime"
+              f"(整個 SN 都解析不到時 cycleTime 會留空,不再變成 0)")
+
+    # min_count=1: 全部列都算不出時間差的 SN 要是 NaN,不能被 sum() 變成 0
     _cycle_by_sn = (
         pd.DataFrame({"usn": df["usn"], "_dur": _row_duration})
         .groupby("usn")["_dur"]
-        .sum()
+        .sum(min_count=1)
         .round(3)
     )
+    # 來源只有單一時間戳(startTime == endTime,例如 WMX C219B/MB)時,時間差恆為 0,
+    # 這不是真的 0 秒,而是「沒有 cycle time」。改成 NaN,不要拉低 P10/P50/平均。
+    _zero_sn = int((_cycle_by_sn == 0).sum())
+    if _zero_sn:
+        print(f"  [警告] {_zero_sn}/{len(_cycle_by_sn)} 個 SN 的 cycleTime 恆為 0"
+              f"(來源 startTime 等於 endTime,沒有測試時長資訊),已改為空白,不納入 CT 統計")
+        _cycle_by_sn = _cycle_by_sn.where(_cycle_by_sn != 0)
     cycle_map = _cycle_by_sn
 
     # ---- YV4/MB 特例: 同一次測試會有 PI、TD 兩個stage,要合併成一個cycle time:
@@ -376,12 +424,12 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
 
         _pi_start = (
             df.loc[df["stage"] == "PI"]
-            .assign(_s=pd.to_datetime(df.loc[df["stage"] == "PI", "startTime"], errors="coerce"))
+            .assign(_s=_start_dt[df["stage"] == "PI"])
             .groupby("usn")["_s"].min()
         )
         _td_end = (
             df.loc[df["stage"] == "TD"]
-            .assign(_e=pd.to_datetime(df.loc[df["stage"] == "TD", "endTime"], errors="coerce"))
+            .assign(_e=_end_dt[df["stage"] == "TD"])
             .groupby("usn")["_e"].max()
         )
         _pitd_cycle = (_td_end - _pi_start).dt.total_seconds().round(3)
@@ -619,29 +667,29 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
     r += 1
 
     ws5.cell(row=r, column=1, value="Pure Test Average CT")
-    ws5.cell(row=r, column=2, value=f"=AVERAGE({ct_range})")
+    ws5.cell(row=r, column=2, value=f"=IFERROR(AVERAGE({ct_range}),\"-\")")
     ws5.cell(row=r, column=2).number_format = "0.00"
     r += 1
 
     ws5.cell(row=r, column=1, value="Pure Test P50 CT")
-    ws5.cell(row=r, column=2, value=f"=MEDIAN({ct_range})")
+    ws5.cell(row=r, column=2, value=f"=IFERROR(MEDIAN({ct_range}),\"-\")")
     ws5.cell(row=r, column=2).number_format = "0.00"
     r += 1
 
     ws5.cell(row=r, column=1, value="Pure Test P10 CT")
     row_p10 = r
-    ws5.cell(row=r, column=2, value=f"=PERCENTILE({ct_range},0.1)")
+    ws5.cell(row=r, column=2, value=f"=IFERROR(PERCENTILE({ct_range},0.1),\"-\")")
     ws5.cell(row=r, column=2).number_format = "0.00"
     r += 1
 
     ws5.cell(row=r, column=1, value="Pure Test P90 CT")
     row_p90 = r
-    ws5.cell(row=r, column=2, value=f"=PERCENTILE({ct_range},0.9)")
+    ws5.cell(row=r, column=2, value=f"=IFERROR(PERCENTILE({ct_range},0.9),\"-\")")
     ws5.cell(row=r, column=2).number_format = "0.00"
     r += 1
 
     ws5.cell(row=r, column=1, value="Pure Test CT Spread")
-    ws5.cell(row=r, column=2, value=f"=B{row_p90}-B{row_p10}")
+    ws5.cell(row=r, column=2, value=f"=IFERROR(B{row_p90}-B{row_p10},\"-\")")
     ws5.cell(row=r, column=2).number_format = "0.00"
     r += 1
 
@@ -920,7 +968,7 @@ def main():
     finally:
         connection.close()
 
-    summary_path = f"{ONEDRIVE_DAILY_DIR}/{date_tag}.xlsx"
+    summary_path = f"{ONEDRIVE_DAILY_DIR}/LoB_{date_tag}.xlsx"
     print(f"產生彙總表 -> {summary_path}")
     build_summary(results, summary_path)
     print(f"已存成: {summary_path}")
