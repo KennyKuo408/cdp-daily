@@ -168,15 +168,16 @@ STD_LOOKUP = {
     #WYMY
     ("WYMY", "C41A8", "MB"):881 ,("WYMY", "M1120", "SCM"):451, ("WYMY", "C219B", "MB"):512,
     #WMX
+    ("WMX", "M1120", "SCM"):451, ("WMX", "C219B", "MB"):609,
     # LoB 3
     #WYMTN
     ("WYMTN", "NANAKA", "MB"):2837, ("WYMTN", "NANAKA", "PDB"):322,("WYMTN", "GOSHIN11", "FBP"):986, ("WYMTN", "GOSHIN11", "RBP"):309, ("WYMTN", "GOSHIN11", "ITPS"):472,
     ("WYMTN", "TETON2", "HN_IOBD"):550, ("WYMTN", "TETON2", "HN_RISER0"):399,("WYMTN", "TETON2PDS", "FPB"):900, ("WYMTN", "TETON2PDS", "SWB"):705,
     ("WYMTN", "TETON3", "JBOG_RISER"):210, ("WYMTN", "TETON3PDS", "SWB"):705,("WYMTN", "TETON3PDS", "RISER"):716,
     #WYMY
-    ("WYMY", "NANAKA", "MB"):3213, ("WYMY", "NANAKA", "PDB"):354,("WYMY", "GOSHIN11", "FBP"):1296, ("WYMY", "GOSHIN11", "RBP"):431, ("WYMY", "GOSHIN11", "ITPS"):530,
+    ("WYMY", "NANAKA", "MB"):3213, ("WYMY", "NANAKA", "PDB"):354,("WYMY", "GOSHIN11", "FBP"):1296, ("WYMY", "GOSHIN11", "RBP"):431, ("WYMY", "GOSHIN11", "ITPS"):530,("WYMY", "GOSHIN11", "E-Load"):263,
     ("WYMY", "TETON2", "HN_IOBD"):511, ("WYMY", "TETON2", "HN_RISER0"):214,("WYMY", "TETON2PDS", "FPB"):1272, ("WYMY", "TETON2PDS", "SWB"):816,
-    ("WYMY", "TETON3", "JBOG_RISER"):178,#("WYMY", "TETON3PDS", "RISER"):
+    ("WYMY", "TETON3", "JBOG_RISER"):178, ("WYMY", "TETON3PDS", "RISER"):716
 }
 
 FIXTURE_NUM_RE = re.compile(r"YV4_MB_(\d{3})_MP", re.IGNORECASE)
@@ -219,9 +220,10 @@ def classify_board(site, model, testStage, upn, fixture_id):
 
 # ---------- 輸出路徑(OneDrive 同步資料夾,不是本機 Desktop) ----------
  
-ONEDRIVE_CDP_DIR = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP")
-ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "monthly")
- 
+# ONEDRIVE_CDP_DIR = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP")
+# ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "monthly")
+GitHub Actions 會設定 OUTPUT_DIR,有設就輸出到那裡;沒設(Mac 本機執行)就維持原本的 OneDrive/daily
+ONEDRIVE_DAILY_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(ONEDRIVE_CDP_DIR, "daily")
 
 # ---------- 連線 / 抓資料 ----------
 
@@ -279,7 +281,7 @@ def get_connection_params():
 
 def compute_default_window():
     now = datetime.now()
-    today_8am = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_8am = now.replace(hour=7, minute=0, second=0, microsecond=0)
     end = today_8am if now >= today_8am else today_8am - timedelta(days=1)
     start = end - timedelta(days=1)
     return start, end
