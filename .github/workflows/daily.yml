@@ -93,8 +93,16 @@ jobs:
           if not lob_names:
               raise SystemExit(f"找不到 LoB 分頁，實際只有：{names}")
 
-          summary = xls.parse("彙總")[KEEP].copy()
+          # summary.csv：保留「彙總」分頁全部欄位（含 NDF 後面的 P10/P50/P90/Std）
+          summary = xls.parse("彙總").copy()
+          missing = [c for c in KEEP if c not in summary.columns]
+          if missing:
+              raise SystemExit(f"「彙總」缺少欄位：{missing}；實際欄位：{list(summary.columns)}")
           summary = to_pct(summary)
+          for col in ["P10 (sec)", "P50 (sec)", "P90 (sec)", "Std (sec)"]:
+              if col in summary.columns:
+                  summary[col] = summary[col].map(
+                      lambda v: round(v, 2) if isinstance(v, (int, float)) and not pd.isna(v) else v)
           summary.to_csv(f"{dest}/summary.csv", index=False, encoding="utf-8-sig")
           print(f"已產生 summary.csv，共 {len(summary)} 列")
 
