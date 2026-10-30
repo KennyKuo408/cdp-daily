@@ -1,0 +1,125 @@
+name: Monthly Summary
+
+on:
+  schedule:
+    # 台北每月 1 號 07:30 = UTC 前一天 23:30
+    # GitHub cron 不支援「月底」，所以每月 28~31 號都觸發，由第一步判斷台北日期是不是 1 號
+    - cron: "30 23 28-31 * *"
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "起始日 YYYY-MM-DD（留空 = 上個月 1 號）"
+        required: false
+        default: ""
+        type: string
+      end_date:
+        description: "結束日 YYYY-MM-DD（留空 = 上個月最後一天）"
+        required: false
+        default: ""
+        type: string
+      commit:
+        description: "是否 commit 回 repo（測試時建議不勾）"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-cdp          # 跟 daily 共用，避免同時 push
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Taipei
+
+    steps:
+      - name: 取得 repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 決定統計區間
+        id: range
+        env:
+          IN_START: ${{ inputs.start_date }}
+          IN_END: ${{ inputs.end_date }}
+        run: |
+          # 排程：只有「台北日期是 1 號」才繼續，其他天直接略過
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ] && [ "$(date +%d)" != "01" ]; then
+            echo "今天台北日期不是 1 號，略過"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          first_of_this_month=$(date +%Y-%m-01)
+          START="${IN_START:-$(date -d "$first_of_this_month -1 month" +%Y-%m-%d)}"
+          END="${IN_END:-$(date -d "$first_of_this_month -1 day" +%Y-%m-%d)}"
+          MONTH=$(date -d "$START" +%Y%m)
+
+          echo "統計區間：$START ~ $END（輸出標籤 $MONTH）"
+          {
+            echo "skip=false"
+            echo "start=$START"
+            echo "end=$END"
+            echo "month=$MONTH"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 安裝 Python
+        if: steps.range.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安裝套件
+        if: steps.range.outputs.skip != 'true'
+        run: pip install -r requirements.txt
+
+      - name: 彙整每日 summary
+        if: steps.range.outputs.skip != 'true'
+        run: |
+          python monthly_summary.py \
+            --start "${{ steps.range.outputs.start }}" \
+            --end "${{ steps.range.outputs.end }}" \
+            --out "reports/monthly/${{ steps.range.outputs.month }}"
+          ls -l "reports/monthly/${{ steps.range.outputs.month }}"
+
+      - name: 上傳成 Artifact（測試時可直接下載）
+        if: steps.range.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: monthly-${{ steps.range.outputs.month }}
+          path: reports/monthly/${{ steps.range.outputs.month }}/
+
+      - name: Commit 回 GitHub
+        if: steps.range.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.commit)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+
+          M="${{ steps.range.outputs.month }}"
+          backup="$RUNNER_TEMP/monthly_$M"
+          rm -rf "$backup"
+          cp -r "reports/monthly/$M" "$backup"
+
+          for i in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            rm -rf "reports/monthly/$M"
+            mkdir -p reports/monthly
+            cp -r "$backup" "reports/monthly/$M"
+
+            git add -f "reports/monthly/$M"
+            if git diff --cached --quiet; then
+              echo "沒有變更，不需要 commit"; exit 0
+            fi
+            git commit -m "Monthly report $M"
+            if git push origin HEAD:main; then echo "push 成功"; exit 0; fi
+            echo "push 失敗，第 $i 次重試..."; sleep 5
+          done
+          echo "::error::重試 3 次仍無法 push"; exit 1
