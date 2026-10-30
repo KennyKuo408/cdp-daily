@@ -73,12 +73,12 @@ jobs:
             exit 1
           fi
           tag=$(basename "${summary[0]}" .xlsx)
-          # 加 weekly_ 前綴，跟每日報表（reports/YYYYMMDD）分開，避免覆蓋到同一天的日報
-          rtag="weekly_$tag"
-          dest="reports/$rtag"
+          # 週報放在 reports/weekly/ 底下，跟每日報表（reports/YYYYMMDD）分開
+          dest="reports/weekly/$tag"
           mkdir -p "$dest"
           cp "$OUTPUT_DIR"/*.xlsx "$dest"/
-          echo "REPORT_TAG=$rtag" >> "$GITHUB_ENV"
+          echo "REPORT_DIR=$dest" >> "$GITHUB_ENV"
+          echo "REPORT_TAG=$tag" >> "$GITHUB_ENV"
 
           python - "$dest/$tag.xlsx" "$dest" << 'PY'
           import sys
@@ -145,17 +145,17 @@ jobs:
           # 先把這次的報表另外備份，不在 git 裡做合併，避免 xlsx 這種二進位檔產生衝突
           backup="$RUNNER_TEMP/report_$REPORT_TAG"
           rm -rf "$backup"
-          cp -r "reports/$REPORT_TAG" "$backup"
+          cp -r "$REPORT_DIR" "$backup"
 
           for i in 1 2 3; do
             # 每次都對齊 GitHub 上最新的 main，再把這次的報表蓋上去 → 同一天的報表一律以最新這次為準
             git fetch origin main
             git reset --hard origin/main
-            rm -rf "reports/$REPORT_TAG"
-            mkdir -p reports
-            cp -r "$backup" "reports/$REPORT_TAG"
+            rm -rf "$REPORT_DIR"
+            mkdir -p "$(dirname "$REPORT_DIR")"
+            cp -r "$backup" "$REPORT_DIR"
 
-            git add -f "reports/$REPORT_TAG"   # -f：.gitignore 有擋 xlsx/csv，這裡強制加入
+            git add -f "$REPORT_DIR"   # -f：.gitignore 有擋 xlsx/csv，這裡強制加入
             if git diff --cached --quiet; then
               echo "報表內容跟 GitHub 上的一樣，不需要 commit"
               exit 0
