@@ -90,7 +90,7 @@ JOBS_BY_LOB = {
         ("WYMY", "GOSHIN11", "FBP"), ("WYMY", "GOSHIN11", "RBP"), ("WYMY", "GOSHIN11", "ITPS"),
         ("WYMY", "TETON2", "HN_IOBD"), ("WYMY", "TETON2", "HN_RISER0"),
         ("WYMY", "TETON2PDS", "FPB"), ("WYMY", "TETON2PDS", "SWB"),
-        ("WYMY", "TETON3", "JBOG_RISER"),("WYMY", "TETON3PDS", "RISER")
+        ("WYMY", "TETON3", "JBOG_RISER"),("WYMY", "TETON3PDS", "RISER"), ("WYMY", "TETON3PDS", "SWB")
     ],
 }
 
@@ -177,7 +177,7 @@ STD_LOOKUP = {
     #WYMY
     ("WYMY", "NANAKA", "MB"):3213, ("WYMY", "NANAKA", "PDB"):354,("WYMY", "GOSHIN11", "FBP"):1296, ("WYMY", "GOSHIN11", "RBP"):431, ("WYMY", "GOSHIN11", "ITPS"):530,("WYMY", "GOSHIN11", "E-Load"):263,
     ("WYMY", "TETON2", "HN_IOBD"):511, ("WYMY", "TETON2", "HN_RISER0"):214,("WYMY", "TETON2PDS", "FPB"):1272, ("WYMY", "TETON2PDS", "SWB"):816,
-    ("WYMY", "TETON3", "JBOG_RISER"):178, ("WYMY", "TETON3PDS", "RISER"):716
+    ("WYMY", "TETON3", "JBOG_RISER"):178, ("WYMY", "TETON3PDS", "RISER"):716, ("WYMY", "TETON3PDS", "SWB"):705
 }
 
 FIXTURE_NUM_RE = re.compile(r"YV4_MB_(\d{3})_MP", re.IGNORECASE)
