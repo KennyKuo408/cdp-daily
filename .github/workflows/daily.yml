@@ -2,8 +2,19 @@ name: Daily CDP Download
 
 on:
   schedule:
-    - cron: "0 23 * * *"    # 每天台北 07:00（GitHub 用 UTC，台北時間減 8 小時 → UTC 23:00）
-  workflow_dispatch:         # 允許在 Actions 頁面手動按按鈕執行（測試用）
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+    inputs:
+      start_date:
+        description: "起始日 YYYY-MM-DD(留空 = 用程式預設)"
+        required: false
+        default: ""
+        type: string
+      end_date:
+        description: "結束日 YYYY-MM-DD(留空 = 用程式預設)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write            # 允許 workflow 把報表 commit 回 repo
@@ -40,9 +51,15 @@ jobs:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          START_DATE: ${{ inputs.start_date }}
+          END_DATE: ${{ inputs.end_date }}
         run: |
           mkdir -p "$OUTPUT_DIR"
-          python download_cdp.py
+          ARGS=()
+          if [ -n "$START_DATE" ]; then ARGS+=(--start "$START_DATE"); fi
+          if [ -n "$END_DATE" ];   then ARGS+=(--end "$END_DATE");   fi
+          echo "執行參數：${ARGS[*]:-（無，使用預設日期）}"
+          python download_cdp.py "${ARGS[@]}"
           echo "產出的檔案："
           ls -l "$OUTPUT_DIR"
 
