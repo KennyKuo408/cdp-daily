@@ -1,37 +1,67 @@
-name: Weekly CDP Download
+name: Weekly Summary
 
 on:
   schedule:
-    - cron: "10 23 * * 0"    # 每週一台北 08:30（UTC 週一 00:30；晚於 08:00，窗口邊界已過）
-  workflow_dispatch:         # 手動執行；可選填起訖日，不填就用「上一個完整週」
+    # 台北每週一 09:00 = UTC 週一 01:00
+    # 刻意排在每日報表（台北 07:00）之後，確保上週日的 summary 已 commit
+    - cron: "10 23 * * 0"
+  workflow_dispatch:
     inputs:
-      start:
-        description: "起始日 YYYY-MM-DD（選填）"
+      start_date:
+        description: "起始日 YYYY-MM-DD（留空 = 上週一）"
         required: false
-      end:
-        description: "結束日 YYYY-MM-DD（選填）"
+        default: ""
+        type: string
+      end_date:
+        description: "結束日 YYYY-MM-DD（留空 = 上週日）"
         required: false
+        default: ""
+        type: string
+      commit:
+        description: "是否 commit 回 repo（測試時建議不勾）"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  contents: write            # 允許 workflow 把報表 commit 回 repo
+  contents: write
 
 concurrency:
-  group: daily-cdp           # 跟每日報表共用同一組，避免兩邊同時 push 互相搶
+  group: daily-cdp          # 跟 daily 共用，避免同時 push
   cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 60      # 一週資料量較大，時間放寬
+    timeout-minutes: 15
     env:
       TZ: Asia/Taipei
-      OUTPUT_DIR: ${{ github.workspace }}/output
 
     steps:
-      - name: 取得 repo 裡的程式碼
+      - name: 取得 repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 決定統計區間
+        id: range
+        env:
+          IN_START: ${{ inputs.start_date }}
+          IN_END: ${{ inputs.end_date }}
+        run: |
+          # 本週一 = 今天往回推 (星期幾 - 1) 天；上週 = 本週一往前 7 天 ~ 1 天
+          dow=$(date +%u)    # 週一=1 ... 週日=7
+          this_monday=$(date -d "today -$((dow - 1)) days" +%Y-%m-%d)
+          START="${IN_START:-$(date -d "$this_monday -7 days" +%Y-%m-%d)}"
+          END="${IN_END:-$(date -d "$this_monday -1 day" +%Y-%m-%d)}"
+          WEEK=$(date -d "$START" +%Y%m%d)    # 例如 20261026
+
+          echo "統計區間：$START ~ $END（輸出標籤 $WEEK）"
+          {
+            echo "start=$START"
+            echo "end=$END"
+            echo "week=$WEEK"
+          } >> "$GITHUB_OUTPUT"
 
       - name: 安裝 Python
         uses: actions/setup-python@v5
@@ -42,131 +72,44 @@ jobs:
       - name: 安裝套件
         run: pip install -r requirements.txt
 
-      - name: 執行下載與分析
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_HTTP_PATH: ${{ secrets.DATABRICKS_HTTP_PATH }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          IN_START: ${{ inputs.start }}
-          IN_END: ${{ inputs.end }}
+      - name: 彙整每日 summary
         run: |
-          mkdir -p "$OUTPUT_DIR"
-          if [ -n "$IN_START" ] && [ -n "$IN_END" ]; then
-            START="$IN_START"; END="$IN_END"
-          else
-            # 預設：上一個完整週 = 上週一 08:00 ~ 本週一 08:00（台北時間）
-            dow=$(date +%u)                              # 週一=1 … 週日=7
-            END=$(date -d "-$((dow-1)) days" +%F)        # 本週一
-            START=$(date -d "$END -7 days" +%F)          # 上週一
-          fi
-          echo "查詢窗口：$START 08:00 ~ $END 08:00"
-          python download_cdp.py --start "$START" --end "$END"
-          echo "產出的檔案："
-          ls -l "$OUTPUT_DIR"
+          python weekly_summary.py \
+            --start "${{ steps.range.outputs.start }}" \
+            --end "${{ steps.range.outputs.end }}" \
+            --out "reports/weekly/${{ steps.range.outputs.week }}"
+          ls -l "reports/weekly/${{ steps.range.outputs.week }}"
 
-      - name: 整理報表到 reports/日期/，並拆成 summary.csv 與 LoB.xlsx
-        run: |
-          shopt -s nullglob
-          summary=("$OUTPUT_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].xlsx)
-          if [ ${#summary[@]} -eq 0 ]; then
-            echo "::error::找不到彙總表（YYYYMMDD.xlsx）"
-            exit 1
-          fi
-          tag=$(basename "${summary[0]}" .xlsx)
-          # 週報放在 reports/weekly/ 底下，跟每日報表（reports/YYYYMMDD）分開
-          dest="reports/weekly/$tag"
-          mkdir -p "$dest"
-          cp "$OUTPUT_DIR"/*.xlsx "$dest"/
-          echo "REPORT_DIR=$dest" >> "$GITHUB_ENV"
-          echo "REPORT_TAG=$tag" >> "$GITHUB_ENV"
-
-          python - "$dest/$tag.xlsx" "$dest" << 'PY'
-          import sys
-          import pandas as pd
-
-          src, dest = sys.argv[1], sys.argv[2]
-
-          KEEP = ["Site", "Project", "Board", "Input Qty", "Output Qty",
-                  "Failure Qty", "FPY (%)", "VPY (%)", "NDF"]
-          PCT = ["FPY (%)", "VPY (%)", "NDF"]
-
-          def fmt(v):
-              # 沒資料的列是 "-"，不能拿去乘 100；只有真正的數字才轉成百分比
-              if isinstance(v, (int, float)) and not pd.isna(v):
-                  return f"{v * 100:.2f}%"
-              return "" if pd.isna(v) else v
-
-          def to_pct(df):
-              for col in PCT:
-                  if col in df.columns:
-                      df[col] = df[col].map(fmt)
-              return df
-
-          xls = pd.ExcelFile(src)
-          names = xls.sheet_names
-          print("工作表：", names)
-
-          # 依名稱找：彙總 = 「彙總」；LoB = 名稱以 LoB 開頭（LoB 1 / LoB 2 / LoB 3）
-          if "彙總" not in names:
-              raise SystemExit(f"找不到「彙總」分頁，實際只有：{names}")
-          lob_names = [n for n in names if n.replace(" ", "").lower().startswith("lob")]
-          if not lob_names:
-              raise SystemExit(f"找不到 LoB 分頁，實際只有：{names}")
-
-          # summary.csv：保留「彙總」分頁全部欄位（含 NDF 後面的 P10/P50/P90/Std）
-          summary = xls.parse("彙總").copy()
-          missing = [c for c in KEEP if c not in summary.columns]
-          if missing:
-              raise SystemExit(f"「彙總」缺少欄位：{missing}；實際欄位：{list(summary.columns)}")
-          summary = to_pct(summary)
-          for col in ["P10 (sec)", "P50 (sec)", "P90 (sec)", "Std (sec)"]:
-              if col in summary.columns:
-                  summary[col] = summary[col].map(
-                      lambda v: round(v, 2) if isinstance(v, (int, float)) and not pd.isna(v) else v)
-          summary.to_csv(f"{dest}/summary.csv", index=False, encoding="utf-8-sig")
-          print(f"已產生 summary.csv，共 {len(summary)} 列")
-
-          with pd.ExcelWriter(f"{dest}/LoB.xlsx", engine="openpyxl") as writer:
-              for name in lob_names:
-                  df = xls.parse(name)[KEEP].copy()
-                  df = to_pct(df)
-                  df.to_excel(writer, sheet_name=name, index=False)
-                  print(f"LoB.xlsx 寫入 sheet「{name}」，共 {len(df)} 列")
-          PY
-
-          echo "本次存進 repo 的檔案："
-          ls -l "$dest"
+      - name: 上傳成 Artifact（測試時可直接下載）
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-${{ steps.range.outputs.week }}
+          path: reports/weekly/${{ steps.range.outputs.week }}/
 
       - name: Commit 回 GitHub
+        if: github.event_name == 'schedule' || inputs.commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
 
-          # 先把這次的報表另外備份，不在 git 裡做合併，避免 xlsx 這種二進位檔產生衝突
-          backup="$RUNNER_TEMP/report_$REPORT_TAG"
+          W="${{ steps.range.outputs.week }}"
+          backup="$RUNNER_TEMP/weekly_$W"
           rm -rf "$backup"
-          cp -r "$REPORT_DIR" "$backup"
+          cp -r "reports/weekly/$W" "$backup"
 
           for i in 1 2 3; do
-            # 每次都對齊 GitHub 上最新的 main，再把這次的報表蓋上去 → 同一天的報表一律以最新這次為準
             git fetch origin main
             git reset --hard origin/main
-            rm -rf "$REPORT_DIR"
-            mkdir -p "$(dirname "$REPORT_DIR")"
-            cp -r "$backup" "$REPORT_DIR"
+            rm -rf "reports/weekly/$W"
+            mkdir -p reports/weekly
+            cp -r "$backup" "reports/weekly/$W"
 
-            git add -f "$REPORT_DIR"   # -f：.gitignore 有擋 xlsx/csv，這裡強制加入
+            git add -f "reports/weekly/$W"
             if git diff --cached --quiet; then
-              echo "報表內容跟 GitHub 上的一樣，不需要 commit"
-              exit 0
+              echo "沒有變更，不需要 commit"; exit 0
             fi
-            git commit -m "Weekly report $REPORT_TAG"
-            if git push origin HEAD:main; then
-              echo "push 成功"
-              exit 0
-            fi
-            echo "push 失敗，第 $i 次重試..."
-            sleep 5
+            git commit -m "Weekly report $W"
+            if git push origin HEAD:main; then echo "push 成功"; exit 0; fi
+            echo "push 失敗，第 $i 次重試..."; sleep 5
           done
-          echo "::error::重試 3 次仍無法 push"
-          exit 1
+          echo "::error::重試 3 次仍無法 push"; exit 1
