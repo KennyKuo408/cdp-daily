@@ -221,7 +221,7 @@ def classify_board(site, model, testStage, upn, fixture_id):
 # ---------- 輸出路徑(OneDrive 同步資料夾,不是本機 Desktop) ----------
  
 # ONEDRIVE_CDP_DIR = os.path.expanduser("~/Library/CloudStorage/OneDrive-WiwynnCorporation/CDP")
-# ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "monthly")
+# ONEDRIVE_DAILY_DIR = os.path.join(ONEDRIVE_CDP_DIR, "daily")
 # GitHub Actions 會設定 OUTPUT_DIR,有設就輸出到那裡;沒設(Mac 本機執行)就維持原本的 OneDrive/daily
 ONEDRIVE_DAILY_DIR = os.environ.get("OUTPUT_DIR") or os.path.join(ONEDRIVE_CDP_DIR, "daily")
 
@@ -321,7 +321,7 @@ def fetch_table(connection, table_name, model, testStage, start_str, end_str, st
             )
         ORDER BY t.endTimeLocal ASC
     """
-  
+
     cursor = connection.cursor()
     cursor.execute(query, {
         "model": f"%{model.upper()}%",
@@ -511,7 +511,15 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
     else:
         p10_sec = p50_sec = p90_sec = spread_sec = None
 
+    # ---- Fail資料分頁裡 testCase 出現次數前三名(只計 tresult=0 且 testCase 非空的列) ----
+    top_issues = []
+    if "testCase" in sheet2_df.columns and len(sheet2_df) > 0:
+        _tc = sheet2_df.loc[sheet2_df["tresult"] == "0", "testCase"].dropna().astype(str).str.strip()
+        _tc = _tc[_tc != ""]
+        top_issues = [(name, int(cnt)) for name, cnt in _tc.value_counts().head(3).items()]
+
     metrics = {
+        "top_issues": top_issues,
         "base_input_qty": base_input_qty,
         "base_output_qty": base_output_qty,
         "failure_qty": fail_sn_count,
@@ -755,6 +763,7 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
 SUMMARY_HEADERS = [
     "Site", "Project", "Board", "Input Qty", "Output Qty", "Failure Qty",
     "FPY (%)", "VPY (%)", "NDF", "P10 (sec)", "P50 (sec)", "P90 (sec)", "Std (sec)",
+    "Top Issue 1", "Top Issue 2", "Top Issue 3",   # N / O / P 欄
 ]
 
 
@@ -791,6 +800,15 @@ def _write_summary_sheet(ws, rows):
         if std_val is None:
             print(f"[提醒] STD_LOOKUP 沒有 {(site, model, board)} 這組的值,Std 欄位留空")
         ws.cell(row=row, column=13, value=std_val).number_format = "0.00"
+
+        # N/O/P: Top Issue 1/2/3 (testCase 名稱 + 次數);不足三個的留空
+        tops = m.get("top_issues") or []
+        for i in range(3):
+            if i < len(tops):
+                name, cnt = tops[i]
+                ws.cell(row=row, column=14 + i, value=f"{name} ({cnt})")
+            else:
+                ws.cell(row=row, column=14 + i, value="-")
         row += 1
 
     header_font = Font(name="Arial", bold=True, color="FFFFFF")
@@ -813,7 +831,7 @@ def _write_summary_sheet(ws, rows):
             ws.cell(row=r, column=col).alignment = Alignment(horizontal="center")
             if v is not None:
                 max_len = max(max_len, len(str(v)))
-        ws.column_dimensions[letter].width = min(max_len + 4, 20)
+        ws.column_dimensions[letter].width = min(max_len + 4, 50 if col >= 14 else 20)
     ws.freeze_panes = "A2"
 
 
@@ -977,7 +995,7 @@ def main():
     finally:
         connection.close()
 
-    summary_path = f"{ONEDRIVE_DAILY_DIR}/{date_tag}.xlsx"
+    summary_path = f"{ONEDRIVE_DAILY_DIR}/LoB_{date_tag}.xlsx"
     print(f"產生彙總表 -> {summary_path}")
     build_summary(results, summary_path)
     print(f"已存成: {summary_path}")
