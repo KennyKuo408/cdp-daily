@@ -511,12 +511,15 @@ def run_fpy_analysis(df: pd.DataFrame, out_path: str, model: str = None, testSta
     else:
         p10_sec = p50_sec = p90_sec = spread_sec = None
 
-    # ---- Fail資料分頁裡 testCase 出現次數前三名(只計 tresult=0 且 testCase 非空的列) ----
+    # ---- Fail資料分頁裡 testCase 前三名:以「發生在幾個 usn」計算(同一 usn 同一 testCase 只算 1) ----
+    #      只計 tresult=0 且 testCase 非空的列
     top_issues = []
     if "testCase" in sheet2_df.columns and len(sheet2_df) > 0:
-        _tc = sheet2_df.loc[sheet2_df["tresult"] == "0", "testCase"].dropna().astype(str).str.strip()
-        _tc = _tc[_tc != ""]
-        top_issues = [(name, int(cnt)) for name, cnt in _tc.value_counts().head(3).items()]
+        _f = sheet2_df.loc[sheet2_df["tresult"] == "0", ["usn", "testCase"]].dropna()
+        _f["testCase"] = _f["testCase"].astype(str).str.strip()
+        _f = _f[_f["testCase"] != ""]
+        _cnt = _f.groupby("testCase")["usn"].nunique().sort_values(ascending=False, kind="stable")
+        top_issues = [(name, int(n)) for name, n in _cnt.head(3).items()]
 
     metrics = {
         "top_issues": top_issues,
@@ -801,12 +804,14 @@ def _write_summary_sheet(ws, rows):
             print(f"[提醒] STD_LOOKUP 沒有 {(site, model, board)} 這組的值,Std 欄位留空")
         ws.cell(row=row, column=13, value=std_val).number_format = "0.00"
 
-        # N/O/P: Top Issue 1/2/3 (testCase 名稱 + 次數);不足三個的留空
+        # N/O/P: Top Issue 1/2/3 -> testCase (n, n/Failure Qty);n = 發生的 usn 數
         tops = m.get("top_issues") or []
+        fail_qty = m.get("failure_qty") or 0
         for i in range(3):
             if i < len(tops):
                 name, cnt = tops[i]
-                ws.cell(row=row, column=14 + i, value=f"{name} ({cnt})")
+                pct = f"{cnt / fail_qty:.1%}" if fail_qty else "-"
+                ws.cell(row=row, column=14 + i, value=f"{name} ({cnt}, {pct})")
             else:
                 ws.cell(row=row, column=14 + i, value="-")
         row += 1
