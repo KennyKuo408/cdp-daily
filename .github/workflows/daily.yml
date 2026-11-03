@@ -125,10 +125,16 @@ jobs:
 
           with pd.ExcelWriter(f"{dest}/LoB.xlsx", engine="openpyxl") as writer:
               for name in lob_names:
-                  df = xls.parse(name)[KEEP].copy()
-                  df = to_pct(df)
+                  raw = xls.parse(name)
+                  top_cols = [c for c in raw.columns if str(c).startswith("Top Issue")]
+                  df = to_pct(raw[KEEP + top_cols].copy())
                   df.to_excel(writer, sheet_name=name, index=False)
-                  print(f"LoB.xlsx 寫入 sheet「{name}」，共 {len(df)} 列")
+                  ws = writer.sheets[name]
+                  for i, col in enumerate(df.columns, start=1):
+                      if col in top_cols:
+                          ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = 40
+                  print(f"LoB.xlsx 寫入 sheet「{name}」，共 {len(df)} 列，Top Issue 欄位：{top_cols}")
+          
           PY
 
           echo "本次存進 repo 的檔案："
