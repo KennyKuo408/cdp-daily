@@ -306,15 +306,22 @@ def fetch_table(connection, table_name, model, testStage, start_str, end_str, st
     stage_list_sql = ",".join(f"'{s}'" for s in stages)
     query = f"""
         SELECT *
-        FROM {table_name}
-        WHERE UPPER(model) LIKE %(model)s
-            AND UPPER(testStage) LIKE %(testStage)s
-            AND stage IN ({stage_list_sql})
-            AND UPPER(fixtureId) NOT LIKE '%DOA%'
-            AND startTime >= %(start)s
-            AND startTime < %(end)s
-        ORDER BY endTimeLocal ASC
+        FROM {table_name} AS t
+        WHERE UPPER(t.model) LIKE %(model)s
+            AND UPPER(t.testStage) LIKE %(testStage)s
+            AND t.stage IN ({stage_list_sql})
+            AND UPPER(t.fixtureId) NOT LIKE '%DOA%'
+            AND t.startTime >= %(start)s
+            AND t.startTime <  %(end)s
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {table_name} AS h
+                WHERE h.usn = t.usn
+                  AND h.startTime < %(start)s
+            )
+        ORDER BY t.endTimeLocal ASC
     """
+  
     cursor = connection.cursor()
     cursor.execute(query, {
         "model": f"%{model.upper()}%",
