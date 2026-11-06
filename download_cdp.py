@@ -307,7 +307,7 @@ def fetch_table(connection, table_name, model, testStage, start_str, end_str, st
     query = f"""
         SELECT *
         FROM {table_name} AS t
-        WHERE UPPER(t.model) LIKE %(model)s
+        WHERE UPPER(t.model) RLIKE %(model)s
             AND UPPER(t.testStage) LIKE %(testStage)s
             AND t.stage IN ({stage_list_sql})
             AND UPPER(t.fixtureId) NOT LIKE '%DOA%'
@@ -324,7 +324,7 @@ def fetch_table(connection, table_name, model, testStage, start_str, end_str, st
 
     cursor = connection.cursor()
     cursor.execute(query, {
-        "model": f"%{model.upper()}%",
+        "model": f"(^|[^A-Z0-9]){model.upper()}($|[^A-Z0-9])",
         "testStage": testStage.upper(),
         "start": start_str,
         "end": end_str,
