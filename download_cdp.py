@@ -806,11 +806,11 @@ def _write_summary_sheet(ws, rows):
 
         # N/O/P: Top Issue 1/2/3 -> testCase (n, n/Failure Qty);n = 發生的 usn 數
         tops = m.get("top_issues") or []
-        fail_qty = m.get("failure_qty") or 0
+        input_qty = m.get("base_input_qty") or 0
         for i in range(3):
             if i < len(tops):
                 name, cnt = tops[i]
-                pct = f"{cnt / fail_qty:.1%}" if fail_qty else "-"
+                pct = f"{cnt / input_qty:.1%}" if input_qty else "-"
                 ws.cell(row=row, column=14 + i, value=f"{name} ({cnt}, {pct})")
             else:
                 ws.cell(row=row, column=14 + i, value="-")
