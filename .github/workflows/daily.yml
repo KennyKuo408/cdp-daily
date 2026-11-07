@@ -2,7 +2,7 @@ name: Daily CDP Download
 
 on:
   schedule:
-    - cron: "0 23 * * *"
+    - cron: "07 23 * * *"
   workflow_dispatch:
     inputs:
       start_date:
