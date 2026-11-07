@@ -4,7 +4,7 @@ on:
   schedule:
     # 台北每月 1 號 07:30 = UTC 前一天 23:30
     # GitHub cron 不支援「月底」，所以每月 28~31 號都觸發，由第一步判斷台北日期是不是 1 號
-    - cron: "30 23 28-31 * *"
+    - cron: "37 23 28-31 * *"
   workflow_dispatch:
     inputs:
       start_date:
